@@ -1,0 +1,17 @@
+{
+  "name": "blockchain-auth-system",
+  "version": "1.0.0",
+  "description": "Blockchain-Based Secure Identity Authentication System",
+  "private": true,
+  "scripts": {
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "deploy-contracts": "npx hardhat compile && npx hardhat run scripts/deploy.js --network ganache",
+    "start-backend": "cd backend && npm run dev",
+    "start-frontend": "cd frontend && npm start",
+    "test-contracts": "npx hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.14.0"
+  }
+}
