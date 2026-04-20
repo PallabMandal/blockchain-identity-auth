@@ -200,7 +200,7 @@ const CredentialRegistryABI = [
         "inputs": [
             { "internalType": "bytes32", "name": "_subjectDID", "type": "bytes32" },
             { "internalType": "bytes32[]", "name": "_credentialIds", "type": "bytes32[]" },
-            { "internalType": "string", "name": "_zkProof", "type": "string" }
+            { "internalType": "string", "name": "_proofHash", "type": "string" }
         ],
         "name": "createPresentation",
         "outputs": [],

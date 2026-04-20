@@ -36,14 +36,6 @@ async function main() {
     const didRegistryAddress = await didRegistry.getAddress();
     console.log(`✅ DIDRegistry deployed to: ${didRegistryAddress}\n`);
 
-    // Deploy CredentialRegistry
-    console.log('📝 Deploying CredentialRegistry...');
-    const CredentialRegistry = await ethers.getContractFactory('CredentialRegistry');
-    const credentialRegistry = await CredentialRegistry.deploy();
-    await credentialRegistry.waitForDeployment();
-    const credentialRegistryAddress = await credentialRegistry.getAddress();
-    console.log(`✅ CredentialRegistry deployed to: ${credentialRegistryAddress}\n`);
-
     // Deploy AuditLog
     console.log('📝 Deploying AuditLog...');
     const AuditLog = await ethers.getContractFactory('AuditLog');
@@ -51,6 +43,14 @@ async function main() {
     await auditLog.waitForDeployment();
     const auditLogAddress = await auditLog.getAddress();
     console.log(`✅ AuditLog deployed to: ${auditLogAddress}\n`);
+
+    // Deploy CredentialRegistry
+    console.log('📝 Deploying CredentialRegistry...');
+    const CredentialRegistry = await ethers.getContractFactory('CredentialRegistry');
+    const credentialRegistry = await CredentialRegistry.deploy(auditLogAddress);
+    await credentialRegistry.waitForDeployment();
+    const credentialRegistryAddress = await credentialRegistry.getAddress();
+    console.log(`✅ CredentialRegistry deployed to: ${credentialRegistryAddress}\n`);
 
     // Save addresses to backend/.env
     const envPath = path.resolve(__dirname, '../backend/.env');

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "./AuditLog.sol";
+
 /**
  * @title CredentialRegistry
  * @dev Manages Verifiable Credentials (VCs) and Verifiable Presentations (VPs)
@@ -24,7 +26,7 @@ contract CredentialRegistry {
         bytes32 presentationId;
         bytes32 subjectDID;
         bytes32[] credentialIds;
-        string zeroKnowledgeProof;
+        string proofHash;
         uint256 presentedAt;
         bool verified;
     }
@@ -33,6 +35,25 @@ contract CredentialRegistry {
     mapping(bytes32 => VerifiablePresentation) public presentations;
     mapping(bytes32 => bool) public revokedCredentials;
     mapping(bytes32 => address) public issuerRegistry;
+    mapping(address => bool) public isIssuer;
+    address public owner;
+    AuditLog public auditLog;
+
+    modifier onlyIssuer() {
+        require(isIssuer[msg.sender], "Not authorized issuer");
+        _;
+    }
+
+    constructor(address _auditLog) {
+        auditLog = AuditLog(_auditLog);
+        owner = msg.sender;
+        isIssuer[msg.sender] = true;
+    }
+
+    function addIssuer(address _issuer) public {
+        require(msg.sender == owner, "Only owner");
+        isIssuer[_issuer] = true;
+    }
     
     event CredentialIssued(
         bytes32 indexed credentialId,
@@ -58,7 +79,7 @@ contract CredentialRegistry {
         string memory _credentialType,
         bytes32 _credentialHash,
         uint256 _expiryDays
-    ) external {
+    ) external onlyIssuer {
         require(_expiryDays > 0, "Expiry must be positive");
         
         bytes32 credentialId = keccak256(
@@ -84,6 +105,13 @@ contract CredentialRegistry {
         issuerRegistry[_issuerDID] = msg.sender;
         
         emit CredentialIssued(credentialId, _issuerDID, _subjectDID, expiresAt);
+        auditLog.logAction(
+            AuditLog.ActionType.CREDENTIAL_ISSUED,
+            _subjectDID,
+            credentialId,
+            "Credential issued",
+            ""
+        );
     }
     
     /**
@@ -99,6 +127,13 @@ contract CredentialRegistry {
         
         cred.verified = true;
         emit CredentialVerified(_credentialId);
+        auditLog.logAction(
+            AuditLog.ActionType.CREDENTIAL_VERIFIED,
+            cred.subjectDID,
+            _credentialId,
+            "Credential verified",
+            ""
+        );
     }
     
     /**
@@ -121,12 +156,12 @@ contract CredentialRegistry {
      * @dev Create a verifiable presentation
      * @param _subjectDID Hash of subject's DID
      * @param _credentialIds Array of credential IDs to present
-     * @param _zkProof Zero-knowledge proof data
+     * @param _proofHash Hash of presentation proof payload
      */
     function createPresentation(
         bytes32 _subjectDID,
         bytes32[] memory _credentialIds,
-        string memory _zkProof
+        string memory _proofHash
     ) external {
         require(_credentialIds.length > 0, "At least one credential required");
         
@@ -154,7 +189,7 @@ contract CredentialRegistry {
             presentationId: presentationId,
             subjectDID: _subjectDID,
             credentialIds: _credentialIds,
-            zeroKnowledgeProof: _zkProof,
+            proofHash: _proofHash,
             presentedAt: block.timestamp,
             verified: false
         });

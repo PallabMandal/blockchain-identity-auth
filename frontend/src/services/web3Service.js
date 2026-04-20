@@ -43,22 +43,20 @@ export const Web3Service = {
 };
 
 export const APIService = {
-    async registerSchema(schema, fromAddress, privateKey) {
+    async registerSchema(schema, fromAddress) {
         const response = await axios.post(`${API_URL}/did/register-schema`, {
             schema,
-            fromAddress,
-            privateKey
+            fromAddress
         });
         return response.data;
     },
 
-    async registerDID(didString, publicKey, schemaHash, fromAddress, privateKey) {
+    async registerDID(didString, publicKey, schemaHash, fromAddress) {
         const response = await axios.post(`${API_URL}/did/register`, {
             didString,
             publicKey,
             schemaHash,
-            fromAddress,
-            privateKey
+            fromAddress
         });
         return response.data;
     },
@@ -68,24 +66,22 @@ export const APIService = {
         return response.data;
     },
 
-    async issueCredential(issuerDID, subjectDID, credentialType, credentialHash, expiryDays, fromAddress, privateKey) {
+    async issueCredential(issuerDID, subjectDID, credentialType, credentialHash, expiryDays, fromAddress) {
         const response = await axios.post(`${API_URL}/credential/issue`, {
             issuerDID,
             subjectDID,
             credentialType,
             credentialHash,
             expiryDays,
-            fromAddress,
-            privateKey
+            fromAddress
         });
         return response.data;
     },
 
-    async verifyCredential(credentialId, fromAddress, privateKey) {
+    async verifyCredential(credentialId, fromAddress) {
         const response = await axios.post(`${API_URL}/credential/verify`, {
             credentialId,
-            fromAddress,
-            privateKey
+            fromAddress
         });
         return response.data;
     },

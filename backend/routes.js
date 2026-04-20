@@ -8,22 +8,11 @@ const router = express.Router();
 // Initialize Web3 contract instances
 let didRegistry, credentialRegistry, auditLog;
 
-async function getWallet(privateKey, fromAddress) {
-    if (privateKey) {
-        const wallet = new ethers.Wallet(privateKey, config.provider);
-
-        if (fromAddress && wallet.address.toLowerCase() !== fromAddress.toLowerCase()) {
-            throw new Error('privateKey does not match fromAddress');
-        }
-
-        return wallet;
-    }
-
-    if (!fromAddress) {
-        throw new Error('Missing fromAddress');
-    }
-
-    return await config.provider.getSigner(fromAddress);
+function writeOperationDisabled(res, operation) {
+    return res.status(410).json({
+        success: false,
+        error: `${operation} must be submitted by the client wallet via MetaMask. Backend write signing is disabled.`
+    });
 }
 
 function isBytes32(value) {
@@ -64,43 +53,9 @@ router.use((req, res, next) => {
  */
 router.post('/did/register-schema', async (req, res) => {
     try {
-        const { schema, fromAddress, privateKey } = req.body;
-
-        if (!schema || !fromAddress) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-
-        if (!didRegistry) {
-            return res.status(500).json({ error: 'DIDRegistry contract not initialized' });
-        }
-
-        const wallet = await getWallet(privateKey, fromAddress);
-        const schemaHash = ethers.keccak256(ethers.toUtf8Bytes(schema));
-
-        const tx = await didRegistry.connect(wallet).registerSchema(schema);
-        const receipt = await tx.wait();
-
-        res.json({
-            success: true,
-            schemaHash: schemaHash,
-            transactionHash: receipt.hash,
-            message: 'Schema registered successfully'
-        });
+        return writeOperationDisabled(res, 'Schema registration');
     } catch (error) {
         console.error('Error registering schema:', error);
-
-        const revertMessage = error?.info?.error?.message || '';
-        if (revertMessage.includes('Schema already registered')) {
-            const { schema } = req.body;
-            const schemaHash = ethers.keccak256(ethers.toUtf8Bytes(schema));
-
-            return res.json({
-                success: true,
-                schemaHash,
-                message: 'Schema already registered'
-            });
-        }
-
         res.status(500).json({ error: error.message });
     }
 });
@@ -111,45 +66,9 @@ router.post('/did/register-schema', async (req, res) => {
  */
 router.post('/did/register', async (req, res) => {
     try {
-        const { didString, publicKey, schemaHash, fromAddress, privateKey } = req.body;
-
-        if (!didString || !publicKey || !schemaHash || !fromAddress) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-
-        if (!didRegistry) {
-            return res.status(500).json({ error: 'DIDRegistry contract not initialized' });
-        }
-
-        const wallet = await getWallet(privateKey, fromAddress);
-        const didHash = ethers.keccak256(ethers.toUtf8Bytes(didString));
-
-        const tx = await didRegistry.connect(wallet).registerDID(didString, publicKey, schemaHash);
-        const receipt = await tx.wait();
-
-        res.json({
-            success: true,
-            didHash: didHash,
-            didString: didString,
-            transactionHash: receipt.hash,
-            message: 'DID registered successfully'
-        });
+        return writeOperationDisabled(res, 'DID registration');
     } catch (error) {
         console.error('Error registering DID:', error);
-
-        const revertMessage = error?.info?.error?.message || '';
-        if (revertMessage.includes('DID already exists')) {
-            return res.status(409).json({
-                error: 'DID already exists. Use a unique DID string (for example: did:blockchain:myuser123-2).'
-            });
-        }
-
-        if (revertMessage.includes('Schema not registered')) {
-            return res.status(400).json({
-                error: 'Schema is not registered yet. Register schema first, then register DID.'
-            });
-        }
-
         res.status(500).json({ error: error.message });
     }
 });
@@ -198,72 +117,9 @@ router.get('/did/:didHash', async (req, res) => {
  */
 router.post('/credential/issue', async (req, res) => {
     try {
-        const {
-            issuerDID,
-            subjectDID,
-            credentialType,
-            credentialHash,
-            expiryDays,
-            fromAddress,
-            privateKey
-        } = req.body;
-
-        if (!issuerDID || !subjectDID || !credentialType || !credentialHash || !expiryDays || !fromAddress) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-
-        if (!credentialRegistry) {
-            return res.status(500).json({ error: 'CredentialRegistry contract not initialized' });
-        }
-
-        const wallet = await getWallet(privateKey, fromAddress);
-
-        const tx = await credentialRegistry.connect(wallet).issueCredential(
-            issuerDID,
-            subjectDID,
-            credentialType,
-            credentialHash,
-            expiryDays
-        );
-
-        const receipt = await tx.wait();
-        const issuedTopic = ethers.id('CredentialIssued(bytes32,bytes32,bytes32,uint256)');
-        const issuedLog = receipt.logs.find((log) =>
-            log.address?.toLowerCase() === config.credentialRegistryAddress?.toLowerCase() &&
-            log.topics?.[0] === issuedTopic
-        );
-
-        if (!issuedLog) {
-            return res.status(500).json({
-                error: 'Credential issued transaction succeeded, but credentialId event was not found in receipt logs.'
-            });
-        }
-
-        const parsedIssued = credentialRegistry.interface.parseLog(issuedLog);
-        const credentialId = parsedIssued?.args?.credentialId || parsedIssued?.args?.[0];
-
-        if (!credentialId || credentialId === ethers.ZeroHash) {
-            return res.status(500).json({
-                error: 'Credential issuance returned an invalid credentialId. Please issue again.'
-            });
-        }
-
-        res.json({
-            success: true,
-            credentialId: credentialId,
-            transactionHash: receipt.hash,
-            message: 'Credential issued successfully'
-        });
+        return writeOperationDisabled(res, 'Credential issuance');
     } catch (error) {
         console.error('Error issuing credential:', error);
-
-        const revertMessage = error?.info?.error?.message || '';
-        if (revertMessage.includes('Credential exists')) {
-            return res.status(409).json({
-                error: 'Credential collision detected. Please issue again (a unique credential ID will be generated).'
-            });
-        }
-
         res.status(500).json({ error: error.message });
     }
 });
@@ -274,39 +130,7 @@ router.post('/credential/issue', async (req, res) => {
  */
 router.post('/credential/verify', async (req, res) => {
     try {
-        const { credentialId, fromAddress, privateKey } = req.body;
-
-        if (!credentialId || !fromAddress) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-
-        if (!credentialRegistry) {
-            return res.status(500).json({ error: 'CredentialRegistry contract not initialized' });
-        }
-
-        if (!isBytes32(credentialId)) {
-            return res.status(400).json({
-                error: 'Invalid credentialId. Expected a 32-byte hex hash (0x + 64 hex chars), not a contract address.'
-            });
-        }
-
-        const existingCredential = await credentialRegistry.getCredential(credentialId);
-        if (!existingCredential || !existingCredential.credentialId || existingCredential.credentialId === ethers.ZeroHash) {
-            return res.status(404).json({ error: 'Credential not found' });
-        }
-
-        const wallet = await getWallet(privateKey, fromAddress);
-
-        const tx = await credentialRegistry.connect(wallet).verifyCredential(credentialId);
-        const receipt = await tx.wait();
-
-        res.json({
-            success: true,
-            credentialId: credentialId,
-            verified: true,
-            transactionHash: receipt.hash,
-            message: 'Credential verified successfully'
-        });
+        return writeOperationDisabled(res, 'Credential verification');
     } catch (error) {
         console.error('Error verifying credential:', error);
         res.status(500).json({ error: error.message });

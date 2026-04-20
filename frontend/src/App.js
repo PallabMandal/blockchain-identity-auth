@@ -1,6 +1,68 @@
 import React, { useState, useEffect } from 'react';
+import { ethers, keccak256, toUtf8Bytes } from 'ethers';
 import { Web3Service, APIService } from './services/web3Service';
 import './App.css';
+
+const DID_REGISTRY_ABI = [
+    'function registerSchema(string _schema) external',
+    'function registerDID(string _didString, string _publicKey, bytes32 _schemaHash) external',
+    'function schemaRegistry(bytes32) view returns (bool)',
+    'function getDIDFromAddress(address _address) view returns (bytes32)'
+];
+
+const CREDENTIAL_REGISTRY_ABI = [
+    'function issueCredential(bytes32 _issuerDID, bytes32 _subjectDID, string _credentialType, bytes32 _credentialHash, uint256 _expiryDays) external',
+    'function verifyCredential(bytes32 _credentialId) external',
+    'event CredentialIssued(bytes32 indexed credentialId, bytes32 indexed issuerDID, bytes32 indexed subjectDID, uint256 expiresAt)'
+];
+
+const AUDIT_LOG_ABI = [
+    'function logAction(uint8 _action, bytes32 _subjectDID, bytes32 _relatedEntity, string _details, string _ipfsHash) external'
+];
+
+const ZERO_BYTES32 = `0x${'0'.repeat(64)}`;
+
+const AUDIT_ACTION_LABELS = {
+    0: 'DID_CREATED',
+    1: 'DID_UPDATED',
+    2: 'DID_REVOKED',
+    3: 'CREDENTIAL_ISSUED',
+    4: 'CREDENTIAL_VERIFIED',
+    5: 'CREDENTIAL_REVOKED',
+    6: 'PRESENTATION_CREATED',
+    7: 'PRESENTATION_VERIFIED',
+    8: 'ACCESS_GRANTED',
+    9: 'ACCESS_DENIED'
+};
+
+const formatAuditAction = (action) => {
+    const numericAction = Number(action);
+    if (Number.isNaN(numericAction)) {
+        return String(action);
+    }
+
+    return AUDIT_ACTION_LABELS[numericAction] || `UNKNOWN_ACTION_${numericAction}`;
+};
+
+const getSigner = async () => {
+    if (!window.ethereum) {
+        alert('MetaMask not installed');
+        return null;
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send('eth_requestAccounts', []);
+    return await provider.getSigner();
+};
+
+const getContractAddress = (contracts, contractKey, envKey) => {
+    const fromHealth = contracts?.[contractKey];
+    if (fromHealth && fromHealth !== 'not deployed') {
+        return fromHealth;
+    }
+
+    return process.env[envKey] || '';
+};
 
 const App = () => {
     const [account, setAccount] = useState(null);
@@ -97,6 +159,7 @@ const App = () => {
                 {activePhase === 1 && (
                     <Phase1Component
                         account={account}
+                        contractAddresses={health?.contracts}
                         setMessage={setMessage}
                         loading={loading}
                         setLoading={setLoading}
@@ -107,6 +170,7 @@ const App = () => {
                 {activePhase === 2 && (
                     <Phase2Component
                         account={account}
+                        contractAddresses={health?.contracts}
                         setMessage={setMessage}
                         loading={loading}
                         setLoading={setLoading}
@@ -135,7 +199,7 @@ const App = () => {
 };
 
 // Phase 1: Registration & Issuance Component
-const Phase1Component = ({ account, setMessage, loading, setLoading, getErrorMessage }) => {
+const Phase1Component = ({ account, contractAddresses, setMessage, loading, setLoading, getErrorMessage }) => {
     const [didString, setDidString] = useState('');
     const [publicKey, setPublicKey] = useState('');
 
@@ -147,6 +211,23 @@ const Phase1Component = ({ account, setMessage, loading, setLoading, getErrorMes
 
         setLoading(true);
         try {
+            const didRegistryAddress = getContractAddress(
+                contractAddresses,
+                'didRegistry',
+                'REACT_APP_DID_REGISTRY_ADDRESS'
+            );
+
+            if (!didRegistryAddress) {
+                throw new Error('DIDRegistry address is not configured');
+            }
+
+            const signer = await getSigner();
+            if (!signer) {
+                throw new Error('MetaMask signer not available');
+            }
+
+            const didRegistry = new ethers.Contract(didRegistryAddress, DID_REGISTRY_ABI, signer);
+
             const schema = JSON.stringify({
                 type: 'VerifiableCredential',
                 properties: {
@@ -155,23 +236,37 @@ const Phase1Component = ({ account, setMessage, loading, setLoading, getErrorMes
                 }
             });
 
-            const schemaHash = Web3Service.web3.utils.keccak256(schema);
+            const schemaHash = keccak256(toUtf8Bytes(schema));
 
-            await APIService.registerSchema(
-                schema,
-                account,
-                process.env.REACT_APP_PRIVATE_KEY || ''
+            const schemaAlreadyRegistered = await didRegistry.schemaRegistry(schemaHash);
+            if (!schemaAlreadyRegistered) {
+                const registerSchemaTx = await didRegistry.registerSchema(schema);
+                await registerSchemaTx.wait();
+            }
+
+            const registerDidTx = await didRegistry.registerDID(didString, publicKey, schemaHash);
+            await registerDidTx.wait();
+            const didHash = keccak256(toUtf8Bytes(didString));
+
+            const auditLogAddress = getContractAddress(
+                contractAddresses,
+                'auditLog',
+                'REACT_APP_AUDIT_LOG_ADDRESS'
             );
 
-            const result = await APIService.registerDID(
-                didString,
-                publicKey,
-                schemaHash,
-                account,
-                process.env.REACT_APP_PRIVATE_KEY || ''
-            );
+            if (auditLogAddress) {
+                const auditLog = new ethers.Contract(auditLogAddress, AUDIT_LOG_ABI, signer);
+                const tx = await auditLog.logAction(
+                    0,
+                    didHash,
+                    didHash,
+                    'DID created',
+                    ''
+                );
+                await tx.wait();
+            }
 
-            setMessage(`Success: DID registered! Hash: ${result.didHash}`);
+            setMessage(`Success: DID registered! Hash: ${didHash}`);
             setDidString('');
             setPublicKey('');
         } catch (error) {
@@ -221,7 +316,7 @@ const Phase1Component = ({ account, setMessage, loading, setLoading, getErrorMes
 };
 
 // Phase 2: Authentication & Verification Component
-const Phase2Component = ({ account, setMessage, loading, setLoading, getErrorMessage }) => {
+const Phase2Component = ({ account, contractAddresses, setMessage, loading, setLoading, getErrorMessage }) => {
     const [credentialId, setCredentialId] = useState('');
     const [credentialDetails, setCredentialDetails] = useState(null);
     const [credentialType, setCredentialType] = useState('GovernmentID');
@@ -233,32 +328,79 @@ const Phase2Component = ({ account, setMessage, loading, setLoading, getErrorMes
             return;
         }
 
-        if (!Web3Service.web3) {
-            setMessage('Error: Web3 not initialized. Refresh and reconnect MetaMask.');
-            return;
-        }
-
         setLoading(true);
         try {
-            const nonce = `${Date.now()}-${Math.random()}`;
-            const issuerDID = Web3Service.web3.utils.keccak256(`issuer:${account}`);
-            const subjectDID = Web3Service.web3.utils.keccak256(`subject:${account}:${nonce}`);
-            const credentialHash = Web3Service.web3.utils.keccak256(
-                JSON.stringify({ account, credentialType, ts: Date.now(), nonce })
+            const credentialRegistryAddress = getContractAddress(
+                contractAddresses,
+                'credentialRegistry',
+                'REACT_APP_CREDENTIAL_REGISTRY_ADDRESS'
             );
 
-            const result = await APIService.issueCredential(
+            if (!credentialRegistryAddress) {
+                throw new Error('CredentialRegistry address is not configured');
+            }
+
+            const signer = await getSigner();
+            if (!signer) {
+                throw new Error('MetaMask signer not available');
+            }
+
+            const credentialRegistry = new ethers.Contract(
+                credentialRegistryAddress,
+                CREDENTIAL_REGISTRY_ABI,
+                signer
+            );
+
+            const didRegistryAddress = getContractAddress(
+                contractAddresses,
+                'didRegistry',
+                'REACT_APP_DID_REGISTRY_ADDRESS'
+            );
+
+            if (!didRegistryAddress) {
+                throw new Error('DIDRegistry address is not configured');
+            }
+
+            const didRegistry = new ethers.Contract(didRegistryAddress, DID_REGISTRY_ABI, signer);
+
+            const nonce = `${Date.now()}-${Math.random()}`;
+            const issuerDID = keccak256(toUtf8Bytes(`issuer:${account}`));
+            const subjectDID = await didRegistry.getDIDFromAddress(account);
+            if (!subjectDID || subjectDID === ZERO_BYTES32) {
+                throw new Error('No DID found for this wallet. Register a DID in Phase 1 first.');
+            }
+            const proofHash = keccak256(
+                toUtf8Bytes(JSON.stringify({ account, credentialType, ts: Date.now(), nonce }))
+            );
+
+            const tx = await credentialRegistry.issueCredential(
                 issuerDID,
                 subjectDID,
                 credentialType,
-                credentialHash,
-                Number(expiryDays),
-                account,
-                process.env.REACT_APP_PRIVATE_KEY || ''
+                proofHash,
+                Number(expiryDays)
             );
+            const receipt = await tx.wait();
 
-            setCredentialId(result.credentialId);
-            setMessage(`Success: Credential issued! ID: ${result.credentialId?.substring(0, 14)}...`);
+            let issuedCredentialId = '';
+            for (const log of receipt.logs) {
+                try {
+                    const parsed = credentialRegistry.interface.parseLog(log);
+                    if (parsed && parsed.name === 'CredentialIssued') {
+                        issuedCredentialId = parsed.args.credentialId;
+                        break;
+                    }
+                } catch (_) {
+                    // Ignore non-matching logs
+                }
+            }
+
+            if (!issuedCredentialId) {
+                throw new Error('Credential was issued but event parsing failed');
+            }
+
+            setCredentialId(issuedCredentialId);
+            setMessage(`Success: Credential issued! ID: ${issuedCredentialId.substring(0, 14)}...`);
         } catch (error) {
             setMessage('Error: ' + getErrorMessage(error));
         } finally {
@@ -274,11 +416,29 @@ const Phase2Component = ({ account, setMessage, loading, setLoading, getErrorMes
 
         setLoading(true);
         try {
-            await APIService.verifyCredential(
-                credentialId,
-                account,
-                process.env.REACT_APP_PRIVATE_KEY || ''
+            const credentialRegistryAddress = getContractAddress(
+                contractAddresses,
+                'credentialRegistry',
+                'REACT_APP_CREDENTIAL_REGISTRY_ADDRESS'
             );
+
+            if (!credentialRegistryAddress) {
+                throw new Error('CredentialRegistry address is not configured');
+            }
+
+            const signer = await getSigner();
+            if (!signer) {
+                throw new Error('MetaMask signer not available');
+            }
+
+            const credentialRegistry = new ethers.Contract(
+                credentialRegistryAddress,
+                CREDENTIAL_REGISTRY_ABI,
+                signer
+            );
+
+            const tx = await credentialRegistry.verifyCredential(credentialId);
+            await tx.wait();
 
             setMessage('Success: Credential verified!');
         } catch (error) {
@@ -309,7 +469,7 @@ const Phase2Component = ({ account, setMessage, loading, setLoading, getErrorMes
     return (
         <div className="phase-content">
             <h2>🔐 Phase 2: Authentication & Verification</h2>
-            <p>Present and verify your verifiable credentials using zero-knowledge proofs</p>
+            <p>Present and verify your credentials using hash-based proof payloads</p>
 
             <div className="form">
                 <div className="form-group">
@@ -479,7 +639,7 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                                 {recentRecords.map((record) => (
                                     <tr key={record.recordId}>
                                         <td>{record.recordId}</td>
-                                        <td>{record.action}</td>
+                                        <td>{formatAuditAction(record.action)}</td>
                                         <td>{record.actor?.substring(0, 10)}...</td>
                                         <td>{new Date(record.timestamp * 1000).toLocaleString()}</td>
                                     </tr>
