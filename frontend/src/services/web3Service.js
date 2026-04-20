@@ -91,9 +91,18 @@ export const APIService = {
         return response.data;
     },
 
-    async getDIDAuditTrail(didHash) {
+    async getDIDAuditTrailIds(didHash) {
+        const response = await axios.get(`${API_URL}/audit/did/${didHash}/ids`);
+        return response.data;
+    },
+
+    async getDIDAuditTrailRecords(didHash) {
         const response = await axios.get(`${API_URL}/audit/did/${didHash}`);
         return response.data;
+    },
+
+    async getDIDAuditTrail(didHash) {
+        return this.getDIDAuditTrailRecords(didHash);
     },
 
     async getRecentAuditRecords(limit) {

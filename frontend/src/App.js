@@ -545,10 +545,11 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 // Phase 3: Access & Audit Component
 const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMessage }) => {
     const [didHash, setDidHash] = useState('');
-    const [auditTrail, setAuditTrail] = useState(null);
+    const [didAuditIds, setDidAuditIds] = useState(null);
+    const [didAuditRecords, setDidAuditRecords] = useState(null);
     const [recentRecords, setRecentRecords] = useState(null);
 
-    const handleGetAuditTrail = async () => {
+    const handleGetDIDAuditIds = async () => {
         if (!didHash) {
             setMessage('Error: Please enter DID hash');
             return;
@@ -556,9 +557,27 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
 
         setLoading(true);
         try {
-            const result = await APIService.getDIDAuditTrail(didHash);
-            setAuditTrail(result);
-            setMessage('Success: Audit trail retrieved!');
+            const result = await APIService.getDIDAuditTrailIds(didHash);
+            setDidAuditIds(result);
+            setMessage('Success: DID audit IDs retrieved!');
+        } catch (error) {
+            setMessage('Error: ' + getErrorMessage(error));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGetDIDAuditRecords = async () => {
+        if (!didHash) {
+            setMessage('Error: Please enter DID hash');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const result = await APIService.getDIDAuditTrailRecords(didHash);
+            setDidAuditRecords(result);
+            setMessage('Success: DID audit records retrieved!');
         } catch (error) {
             setMessage('Error: ' + getErrorMessage(error));
         } finally {
@@ -598,11 +617,19 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
 
                 <div className="button-group">
                     <button
-                        onClick={handleGetAuditTrail}
+                        onClick={handleGetDIDAuditIds}
                         disabled={loading}
                         className="btn-primary"
                     >
-                        {loading ? 'Loading...' : '🔍 Get Audit Trail'}
+                        {loading ? 'Loading...' : '🔢 DID Audit IDs'}
+                    </button>
+
+                    <button
+                        onClick={handleGetDIDAuditRecords}
+                        disabled={loading}
+                        className="btn-primary"
+                    >
+                        {loading ? 'Loading...' : '🧾 DID Audit Records'}
                     </button>
 
                     <button
@@ -615,10 +642,44 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                 </div>
             </div>
 
-            {auditTrail && (
+            {didAuditIds && (
                 <div className="details-panel">
-                    <h3>DID Audit Trail</h3>
-                    <pre>{JSON.stringify(auditTrail, null, 2)}</pre>
+                    <h3>DID Audit IDs (Minimal Path)</h3>
+                    <pre>{JSON.stringify(didAuditIds, null, 2)}</pre>
+                </div>
+            )}
+
+            {didAuditRecords && (
+                <div className="details-panel">
+                    <h3>DID Audit Records (Enriched Path)</h3>
+                    {Array.isArray(didAuditRecords.records) && didAuditRecords.records.length > 0 ? (
+                        <div className="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Record ID</th>
+                                        <th>Action</th>
+                                        <th>DID String</th>
+                                        <th>Actor</th>
+                                        <th>Timestamp</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {didAuditRecords.records.map((record) => (
+                                        <tr key={record.recordId}>
+                                            <td>{record.recordId}</td>
+                                            <td>{formatAuditAction(record.action)}</td>
+                                            <td>{record.didString || 'N/A'}</td>
+                                            <td>{record.actor?.substring(0, 10)}...</td>
+                                            <td>{new Date(record.timestamp * 1000).toLocaleString()}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <pre>{JSON.stringify(didAuditRecords, null, 2)}</pre>
+                    )}
                 </div>
             )}
 
@@ -631,6 +692,7 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                                 <tr>
                                     <th>Record ID</th>
                                     <th>Action</th>
+                                    <th>DID String</th>
                                     <th>Actor</th>
                                     <th>Timestamp</th>
                                 </tr>
@@ -640,6 +702,7 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                                     <tr key={record.recordId}>
                                         <td>{record.recordId}</td>
                                         <td>{formatAuditAction(record.action)}</td>
+                                        <td>{record.didString || 'N/A'}</td>
                                         <td>{record.actor?.substring(0, 10)}...</td>
                                         <td>{new Date(record.timestamp * 1000).toLocaleString()}</td>
                                     </tr>

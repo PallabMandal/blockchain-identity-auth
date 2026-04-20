@@ -282,6 +282,31 @@ const AuditLogABI = [
     },
     {
         "inputs": [
+            { "internalType": "uint256", "name": "_recordId", "type": "uint256" }
+        ],
+        "name": "getAuditRecord",
+        "outputs": [
+            {
+                "components": [
+                    { "internalType": "uint256", "name": "recordId", "type": "uint256" },
+                    { "internalType": "enum AuditLog.ActionType", "name": "action", "type": "uint8" },
+                    { "internalType": "address", "name": "actor", "type": "address" },
+                    { "internalType": "bytes32", "name": "subjectDID", "type": "bytes32" },
+                    { "internalType": "bytes32", "name": "relatedEntity", "type": "bytes32" },
+                    { "internalType": "string", "name": "details", "type": "string" },
+                    { "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+                    { "internalType": "string", "name": "ipfsHash", "type": "string" }
+                ],
+                "internalType": "struct AuditLog.AuditRecord",
+                "name": "",
+                "type": "tuple"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
             { "internalType": "uint256", "name": "_limit", "type": "uint256" }
         ],
         "name": "getRecentAuditRecords",

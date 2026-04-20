@@ -183,10 +183,10 @@ router.get('/credential/:credentialId', async (req, res) => {
 // PHASE 3: Access & Audit Routes
 
 /**
- * Get audit trail for a DID
- * GET /api/v1/audit/did/:didHash
+ * Get audit trail record IDs for a DID (minimal latency path)
+ * GET /api/v1/audit/did/:didHash/ids
  */
-router.get('/audit/did/:didHash', async (req, res) => {
+router.get('/audit/did/:didHash/ids', async (req, res) => {
     try {
         const { didHash } = req.params;
 
@@ -198,8 +198,64 @@ router.get('/audit/did/:didHash', async (req, res) => {
 
         res.json({
             success: true,
+            didHash,
+            auditRecords: auditTrail.map((id) => parseInt(id))
+        });
+    } catch (error) {
+        console.error('Error fetching DID audit IDs:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get full audit trail records for a DID (enriched path)
+ * GET /api/v1/audit/did/:didHash
+ */
+router.get('/audit/did/:didHash', async (req, res) => {
+    try {
+        const { didHash } = req.params;
+
+        if (!auditLog) {
+            return res.status(500).json({ error: 'AuditLog contract not initialized' });
+        }
+
+        const auditTrail = await auditLog.getDIDAuditTrail(didHash);
+        const recordIds = auditTrail.map((id) => parseInt(id));
+        const records = await Promise.all(
+            recordIds.map(async (recordId) => {
+                const record = await auditLog.getAuditRecord(recordId);
+
+                let didString = '';
+                const subjectDID = record.subjectDID;
+                if (didRegistry && subjectDID && subjectDID !== ethers.ZeroHash) {
+                    try {
+                        const didDoc = await didRegistry.getDID(subjectDID);
+                        if (didDoc?.owner && didDoc.owner !== ethers.ZeroAddress) {
+                            didString = didDoc.didString || '';
+                        }
+                    } catch (_) {
+                        // Keep didString empty if DID lookup fails.
+                    }
+                }
+
+                return {
+                    recordId: parseInt(record.recordId),
+                    action: parseInt(record.action),
+                    actor: record.actor,
+                    subjectDID: record.subjectDID,
+                    relatedEntity: record.relatedEntity,
+                    timestamp: parseInt(record.timestamp),
+                    details: record.details,
+                    didString
+                };
+            })
+        );
+
+        res.json({
+            success: true,
             didHash: didHash,
-            auditRecords: auditTrail.map(id => parseInt(id))
+            auditRecords: recordIds,
+            records
         });
     } catch (error) {
         console.error('Error fetching audit trail:', error);
@@ -221,16 +277,38 @@ router.get('/audit/recent/:limit', async (req, res) => {
 
         const records = await auditLog.getRecentAuditRecords(limit);
 
+        const enrichedRecords = await Promise.all(
+            records.map(async (record) => {
+                let didString = '';
+                const subjectDID = record.subjectDID;
+
+                if (didRegistry && subjectDID && subjectDID !== ethers.ZeroHash) {
+                    try {
+                        const didDoc = await didRegistry.getDID(subjectDID);
+                        if (didDoc?.owner && didDoc.owner !== ethers.ZeroAddress) {
+                            didString = didDoc.didString || '';
+                        }
+                    } catch (_) {
+                        // Keep didString empty if DID lookup fails.
+                    }
+                }
+
+                return {
+                    recordId: parseInt(record.recordId),
+                    action: parseInt(record.action),
+                    actor: record.actor,
+                    subjectDID: record.subjectDID,
+                    relatedEntity: record.relatedEntity,
+                    timestamp: parseInt(record.timestamp),
+                    details: record.details,
+                    didString
+                };
+            })
+        );
+
         res.json({
             success: true,
-            records: records.map(record => ({
-                recordId: parseInt(record.recordId),
-                action: parseInt(record.action),
-                actor: record.actor,
-                subjectDID: record.subjectDID,
-                timestamp: parseInt(record.timestamp),
-                details: record.details
-            }))
+            records: enrichedRecords
         });
     } catch (error) {
         console.error('Error fetching audit records:', error);
