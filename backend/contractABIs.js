@@ -282,6 +282,17 @@ const AuditLogABI = [
     },
     {
         "inputs": [
+            { "internalType": "bytes32", "name": "_credentialId", "type": "bytes32" }
+        ],
+        "name": "getCredentialAuditTrail",
+        "outputs": [
+            { "internalType": "uint256[]", "name": "", "type": "uint256[]" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
             { "internalType": "uint256", "name": "_recordId", "type": "uint256" }
         ],
         "name": "getAuditRecord",

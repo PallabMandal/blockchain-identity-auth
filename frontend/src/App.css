@@ -233,6 +233,15 @@ body {
     overflow-y: auto;
 }
 
+.qr-wrapper {
+    background: white;
+    display: inline-flex;
+    padding: 12px;
+    border-radius: 8px;
+    margin: 10px 0 15px;
+    border: 1px solid #ddd;
+}
+
 /* Table Styles */
 .table-container {
     overflow-x: auto;

@@ -105,6 +105,11 @@ export const APIService = {
         return this.getDIDAuditTrailRecords(didHash);
     },
 
+    async getCredentialAuditTrail(credentialId) {
+        const response = await axios.get(`${API_URL}/audit/credential/${credentialId}`);
+        return response.data;
+    },
+
     async getRecentAuditRecords(limit) {
         const response = await axios.get(`${API_URL}/audit/recent/${limit}`);
         return response.data;

@@ -114,15 +114,26 @@ REACT_APP_CREDENTIAL_REGISTRY_ADDRESS=<address>
 
 ## Backend API Behavior (Current)
 
-Read routes (active):
+**Read routes (active):**
+
+DID and Credential reads:
 
 - GET `/api/v1/did/:didHash`
 - GET `/api/v1/credential/:credentialId`
-- GET `/api/v1/audit/did/:didHash`
-- GET `/api/v1/audit/recent/:limit`
-- GET `/api/v1/health`
 
-Write routes (disabled intentionally, return HTTP 410):
+Audit trail reads:
+
+- GET `/api/v1/audit/did/:didHash` - Full audit trail with enriched DID data
+- GET `/api/v1/audit/did/:didHash/ids` - Audit record IDs only (lightweight)
+- GET `/api/v1/audit/credential/:credentialId` - Audit trail for a credential
+- GET `/api/v1/audit/recent/:limit` - Most recent N audit records system-wide
+
+Health and system:
+
+- GET `/api/v1/health`
+- GET `/` (root endpoint with system info)
+
+**Write routes (disabled intentionally, return HTTP 410):**
 
 - POST `/api/v1/did/register-schema`
 - POST `/api/v1/did/register`
@@ -134,9 +145,18 @@ Write routes (disabled intentionally, return HTTP 410):
 Implemented in `frontend/src/App.js`:
 
 - `getSigner()` obtains `ethers.BrowserProvider(window.ethereum)` signer.
-- Phase 1 writes directly to DIDRegistry from browser wallet.
-- Phase 2 writes directly to CredentialRegistry from browser wallet.
-- Proof payload is hashed before sending (`proofHash`).
+- **Phase 1**: Student registers DID directly to DIDRegistry from browser wallet (binds wallet to identity).
+- **Phase 2**: Admin issues academic certificates:
+  - Collects: student wallet address, student name, college name, course, grade, passing year.
+  - Validates student wallet is a valid Ethereum address.
+  - Looks up student DID from student wallet address.
+  - Creates off-chain certificate payload as JSON.
+  - Hashes payload with keccak256 (only hash stored on-chain).
+  - Calls `CredentialRegistry.issueCredential(issuerDID, subjectDID, "ACADEMIC_CERTIFICATE", proofHash, 3650)` with 10-year expiry.
+  - Generates QR code containing credential ID and verification URL.
+  - Parses `CredentialIssued` event to extract credential ID.
+  - Displays certificate details and QR code for sharing.
+- **Verification**: Frontend normalizes credential ID (handles both raw ID and QR URLs), calls `verifyCredential(...)` via signer.
 
 ## Testing
 

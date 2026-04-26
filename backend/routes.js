@@ -264,6 +264,50 @@ router.get('/audit/did/:didHash', async (req, res) => {
 });
 
 /**
+ * Get full audit trail records for a credential
+ * GET /api/v1/audit/credential/:credentialId
+ */
+router.get('/audit/credential/:credentialId', async (req, res) => {
+    try {
+        const { credentialId } = req.params;
+
+        if (!auditLog) {
+            return res.status(500).json({ error: 'AuditLog contract not initialized' });
+        }
+
+        if (!isBytes32(credentialId)) {
+            return res.status(400).json({
+                error: 'Invalid credentialId. Expected a 32-byte hex hash (0x + 64 hex chars).'
+            });
+        }
+
+        const recordIds = await auditLog.getCredentialAuditTrail(credentialId);
+
+        const records = await Promise.all(
+            recordIds.map(async (id) => {
+                const r = await auditLog.getAuditRecord(id);
+                return {
+                    recordId: Number(r.recordId),
+                    actor: r.actor,
+                    action: Number(r.action),
+                    timestamp: Number(r.timestamp),
+                    details: r.details
+                };
+            })
+        );
+
+        res.json({
+            success: true,
+            credentialId,
+            records
+        });
+    } catch (error) {
+        console.error('Error fetching credential audit trail:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * Get recent audit records
  * GET /api/v1/audit/recent/:limit
  */

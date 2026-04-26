@@ -2,11 +2,12 @@
 
 ## Snapshot
 
-- Project type: local blockchain identity demo
-- Contracts: DIDRegistry, CredentialRegistry, AuditLog
-- Frontend: React + ethers + MetaMask signing
-- Backend: Express read API + health endpoint
+- Project type: Academic Certificate Verification Portal (local blockchain)
+- Contracts: DIDRegistry, CredentialRegistry (academic certificates), AuditLog
+- Frontend: React + ethers + MetaMask signing + QR code generation
+- Backend: Express read API + audit trail aggregation + health endpoint
 - Network defaults: Ganache RPC `http://127.0.0.1:7545`, chain ID `1337`
+- Key Feature: QR-enabled certificate distribution with full audit trail
 
 ## Security and Architecture Upgrades Applied
 
@@ -23,10 +24,10 @@
 ### Frontend
 
 - Wallet connect and account display.
-- DID register flow using direct contract calls.
-- Credential issue + verify using direct contract calls.
-- Credential details via backend read API.
-- Audit trail display via backend read API.
+- **Phase 1**: Student DID registration (binds wallet to identity).
+- **Phase 2**: Admin issues academic certificates with QR codes; students/employers verify certificates using credential ID or scanned QR.
+- Certificate details (issuer, student, college, course, grade, passing year, status) via backend read API.
+- Credential audit trail (issued, verified events) with actor addresses and timestamps via backend read API.
 
 ### Backend
 

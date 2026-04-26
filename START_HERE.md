@@ -4,12 +4,13 @@ Use this file as the shortest trustworthy entry point.
 
 ## Current Reality in One Minute
 
-- Writes are signed by MetaMask in frontend (`frontend/src/App.js`).
-- Backend write APIs are disabled intentionally (HTTP 410).
-- Backend is used for read/health/audit endpoints.
-- Credential issuance is RBAC-restricted on-chain (`isIssuer`).
-- Proof terminology is hash-based (`proofHash`), not true zero-knowledge.
-- Chain ID defaults to `1337`.
+- **Academic Certificates**: System issues and verifies academic credentials with student info, college, course, grade, and passing year.
+- **QR Codes**: Each certificate generates a QR code for easy sharing and scanning.
+- **Wallet Signing**: All writes (DID registration, certificate issue/verify) are signed via MetaMask in the frontend.
+- **Backend Read-Only**: Backend provides read APIs for credentials and audit trails; write APIs intentionally return HTTP 410.
+- **Issuer Control**: Certificate issuance is RBAC-restricted to authorized issuers on-chain.
+- **Audit Trail**: All certificate operations logged immutably; queryable per credential.
+- **Chain ID**: Defaults to `1337` for Ganache.
 
 ## Minimal Run Steps
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ethers, keccak256, toUtf8Bytes } from 'ethers';
 import { Web3Service, APIService } from './services/web3Service';
+import QRCode from 'react-qr-code';
 import './App.css';
 
 const DID_REGISTRY_ABI = [
@@ -319,12 +320,49 @@ const Phase1Component = ({ account, contractAddresses, setMessage, loading, setL
 const Phase2Component = ({ account, contractAddresses, setMessage, loading, setLoading, getErrorMessage }) => {
     const [credentialId, setCredentialId] = useState('');
     const [credentialDetails, setCredentialDetails] = useState(null);
-    const [credentialType, setCredentialType] = useState('GovernmentID');
-    const [expiryDays, setExpiryDays] = useState(365);
+    const [studentAddress, setStudentAddress] = useState('');
+    const [studentName, setStudentName] = useState('');
+    const [collegeName, setCollegeName] = useState('');
+    const [courseName, setCourseName] = useState('');
+    const [grade, setGrade] = useState('');
+    const [passingYear, setPassingYear] = useState('');
 
-    const handleIssueCredential = async () => {
+    const [issuedCredentialId, setIssuedCredentialId] = useState('');
+    const [qrValue, setQrValue] = useState('');
+    const [certificatePayload, setCertificatePayload] = useState(null);
+    const [credentialAuditRecords, setCredentialAuditRecords] = useState([]);
+
+    const normalizeCredentialId = (value) => {
+        const trimmed = (value || '').trim();
+        if (!trimmed) {
+            return '';
+        }
+
+        // Supports scanned QR URLs like https://host?credentialId=0x...
+        if (trimmed.startsWith('http')) {
+            try {
+                return new URL(trimmed).searchParams.get('credentialId') || '';
+            } catch (_) {
+                return trimmed;
+            }
+        }
+
+        return trimmed;
+    };
+
+    const handleIssueAcademicCertificate = async () => {
         if (!account) {
             setMessage('Error: Wallet not connected. Please connect MetaMask first.');
+            return;
+        }
+
+        if (!studentAddress || !studentName || !collegeName || !courseName || !grade || !passingYear) {
+            setMessage('Error: Please fill all certificate fields');
+            return;
+        }
+
+        if (!ethers.isAddress(studentAddress)) {
+            setMessage('Error: Student wallet address is invalid');
             return;
         }
 
@@ -363,22 +401,37 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 
             const didRegistry = new ethers.Contract(didRegistryAddress, DID_REGISTRY_ABI, signer);
 
-            const nonce = `${Date.now()}-${Math.random()}`;
-            const issuerDID = keccak256(toUtf8Bytes(`issuer:${account}`));
-            const subjectDID = await didRegistry.getDIDFromAddress(account);
-            if (!subjectDID || subjectDID === ZERO_BYTES32) {
-                throw new Error('No DID found for this wallet. Register a DID in Phase 1 first.');
+            const issuerAddress = await signer.getAddress();
+            const issuerDID = await didRegistry.getDIDFromAddress(issuerAddress);
+            if (!issuerDID || issuerDID === ZERO_BYTES32) {
+                throw new Error('No DID found for issuer wallet. Register issuer DID in Phase 1 first.');
             }
-            const proofHash = keccak256(
-                toUtf8Bytes(JSON.stringify({ account, credentialType, ts: Date.now(), nonce }))
-            );
+
+            const subjectDID = await didRegistry.getDIDFromAddress(studentAddress);
+            if (!subjectDID || subjectDID === ZERO_BYTES32) {
+                throw new Error('No DID found for student wallet. Register student DID in Phase 1 first.');
+            }
+
+            const payload = {
+                studentName,
+                collegeName,
+                courseName,
+                grade,
+                passingYear,
+                studentAddress,
+                issuerAddress,
+                issuedAt: new Date().toISOString()
+            };
+
+            // Store only hash on-chain; keep full certificate payload off-chain.
+            const proofHash = keccak256(toUtf8Bytes(JSON.stringify(payload)));
 
             const tx = await credentialRegistry.issueCredential(
                 issuerDID,
                 subjectDID,
-                credentialType,
+                'ACADEMIC_CERTIFICATE',
                 proofHash,
-                Number(expiryDays)
+                3650
             );
             const receipt = await tx.wait();
 
@@ -399,6 +452,12 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                 throw new Error('Credential was issued but event parsing failed');
             }
 
+            const qrLink = `${window.location.origin}?credentialId=${issuedCredentialId}`;
+
+            setIssuedCredentialId(issuedCredentialId);
+            setQrValue(qrLink);
+            setCertificatePayload(payload);
+            setCredentialAuditRecords([]);
             setCredentialId(issuedCredentialId);
             setMessage(`Success: Credential issued! ID: ${issuedCredentialId.substring(0, 14)}...`);
         } catch (error) {
@@ -409,7 +468,8 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
     };
 
     const handleVerifyCredential = async () => {
-        if (!credentialId) {
+        const normalizedId = normalizeCredentialId(credentialId);
+        if (!normalizedId) {
             setMessage('Error: Please enter credential ID');
             return;
         }
@@ -437,9 +497,10 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                 signer
             );
 
-            const tx = await credentialRegistry.verifyCredential(credentialId);
+            const tx = await credentialRegistry.verifyCredential(normalizedId);
             await tx.wait();
 
+            setCredentialId(normalizedId);
             setMessage('Success: Credential verified!');
         } catch (error) {
             setMessage('Error: ' + getErrorMessage(error));
@@ -449,17 +510,23 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
     };
 
     const handleGetCredential = async () => {
-        if (!credentialId) {
+        const normalizedId = normalizeCredentialId(credentialId);
+        if (!normalizedId) {
             setMessage('Error: Please enter credential ID');
             return;
         }
 
         setLoading(true);
         try {
-            const result = await APIService.getCredential(credentialId);
+            const result = await APIService.getCredential(normalizedId);
             setCredentialDetails(result.credential);
+            setCredentialId(normalizedId);
+
+            const auditResult = await APIService.getCredentialAuditTrail(normalizedId);
+            setCredentialAuditRecords(Array.isArray(auditResult.records) ? auditResult.records : []);
             setMessage('Success: Credential details retrieved!');
         } catch (error) {
+            setCredentialAuditRecords([]);
             setMessage('Error: ' + getErrorMessage(error));
         } finally {
             setLoading(false);
@@ -469,46 +536,108 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
     return (
         <div className="phase-content">
             <h2>🔐 Phase 2: Authentication & Verification</h2>
-            <p>Present and verify your credentials using hash-based proof payloads</p>
+            <p>Issue, verify, and audit academic certificates using on-chain credential hashes</p>
 
             <div className="form">
                 <div className="form-group">
-                    <label>Credential Type</label>
+                    <label>Student Wallet Address</label>
                     <input
                         type="text"
-                        value={credentialType}
-                        onChange={(e) => setCredentialType(e.target.value)}
-                        placeholder="e.g., GovernmentID"
+                        value={studentAddress}
+                        onChange={(e) => setStudentAddress(e.target.value)}
+                        placeholder="0x..."
                         disabled={loading}
                     />
                 </div>
 
                 <div className="form-group">
-                    <label>Expiry (Days)</label>
+                    <label>Student Name</label>
                     <input
-                        type="number"
-                        min="1"
-                        value={expiryDays}
-                        onChange={(e) => setExpiryDays(e.target.value)}
+                        type="text"
+                        value={studentName}
+                        onChange={(e) => setStudentName(e.target.value)}
+                        placeholder="Enter student name"
+                        disabled={loading}
+                    />
+                </div>
+
+                <div className="form-group">
+                    <label>College Name</label>
+                    <input
+                        type="text"
+                        value={collegeName}
+                        onChange={(e) => setCollegeName(e.target.value)}
+                        placeholder="Enter college name"
+                        disabled={loading}
+                    />
+                </div>
+
+                <div className="form-group">
+                    <label>Course</label>
+                    <input
+                        type="text"
+                        value={courseName}
+                        onChange={(e) => setCourseName(e.target.value)}
+                        placeholder="Enter course name"
+                        disabled={loading}
+                    />
+                </div>
+
+                <div className="form-group">
+                    <label>Grade</label>
+                    <input
+                        type="text"
+                        value={grade}
+                        onChange={(e) => setGrade(e.target.value)}
+                        placeholder="Enter grade"
+                        disabled={loading}
+                    />
+                </div>
+
+                <div className="form-group">
+                    <label>Passing Year</label>
+                    <input
+                        type="text"
+                        value={passingYear}
+                        onChange={(e) => setPassingYear(e.target.value)}
+                        placeholder="e.g., 2026"
                         disabled={loading}
                     />
                 </div>
 
                 <button
-                    onClick={handleIssueCredential}
+                    onClick={handleIssueAcademicCertificate}
                     disabled={loading}
                     className="btn-primary"
                 >
-                    {loading ? 'Issuing...' : '🧾 Issue Test Credential'}
+                    {loading ? 'Issuing...' : '🎓 Issue Academic Certificate'}
                 </button>
 
+                {issuedCredentialId && (
+                    <div className="details-panel">
+                        <h3>Issued Certificate</h3>
+                        <p><strong>Credential ID:</strong> {issuedCredentialId}</p>
+                        <div className="qr-wrapper">
+                            <QRCode value={qrValue} size={180} />
+                        </div>
+                        <pre>{JSON.stringify(certificatePayload, null, 2)}</pre>
+                        <button
+                            onClick={handleVerifyCredential}
+                            disabled={loading}
+                            className="btn-primary"
+                        >
+                            {loading ? 'Verifying...' : '✅ Verify'}
+                        </button>
+                    </div>
+                )}
+
                 <div className="form-group">
-                    <label>Credential ID</label>
+                    <label>Credential ID or QR URL</label>
                     <input
                         type="text"
                         value={credentialId}
                         onChange={(e) => setCredentialId(e.target.value)}
-                        placeholder="Enter credential ID"
+                        placeholder="Paste credential ID or scanned QR URL"
                         disabled={loading}
                     />
                 </div>
@@ -536,6 +665,36 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                 <div className="details-panel">
                     <h3>Credential Details</h3>
                     <pre>{JSON.stringify(credentialDetails, null, 2)}</pre>
+                </div>
+            )}
+
+            {credentialAuditRecords.length > 0 && (
+                <div className="details-panel">
+                    <h3>Credential Audit Trail</h3>
+                    <div className="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Record ID</th>
+                                    <th>Action</th>
+                                    <th>Actor</th>
+                                    <th>Timestamp</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {credentialAuditRecords.map((record) => (
+                                    <tr key={record.recordId}>
+                                        <td>{record.recordId}</td>
+                                        <td>{formatAuditAction(record.action)}</td>
+                                        <td>{record.actor}</td>
+                                        <td>{new Date(record.timestamp * 1000).toLocaleString()}</td>
+                                        <td>{record.details || 'N/A'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
         </div>

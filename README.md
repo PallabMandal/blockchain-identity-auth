@@ -1,15 +1,16 @@
-# Blockchain-Based Secure Identity Authentication System
+# Academic Certificate Verification Portal
 
-A local blockchain identity demo using Ethereum smart contracts, MetaMask, Ganache, a React frontend, and an Express backend.
+A blockchain-based academic certificate issuance and verification system using Ethereum smart contracts, MetaMask, Ganache, a React frontend, and an Express backend. Certificates are issued as on-chain credentials with tamper-proof hashes, QR codes for easy sharing, and immutable audit trails.
 
 ## Current Truth (Important)
 
-- Transaction signing is client-side via MetaMask in the frontend.
-- Backend does not sign blockchain write transactions.
-- Backend write routes still exist but return HTTP 410 to force wallet-based writes.
-- Credential issuance is restricted by on-chain issuer role-based access control (RBAC).
-- Presentation proof uses a hash field (`proofHash`), not real zero-knowledge proof verification.
-- Ganache chain ID is configured as 1337 in project defaults.
+- **Academic Certificates**: Phase 2 issues certificates with fields: student wallet, student name, college, course, grade, passing year.
+- **QR Codes**: Each issued certificate generates a shareable QR code containing the credential ID and verification URL.
+- **Wallet-Signed Writes**: All writes (DID registration and certificate issuance/verification) are signed by student/admin wallets via MetaMask in the frontend.
+- **Backend Read-Only**: Backend does not sign blockchain transactions; write routes return HTTP 410 to enforce wallet-based signing.
+- **Issuer RBAC**: Certificate issuance is restricted to authorized issuers by on-chain role-based access control.
+- **Audit Trail**: All certificate operations (issued, verified) are logged immutably on-chain and queryable via backend APIs.
+- **Ganache Chain ID**: Defaults to 1337 for local development.
 
 ## Project Structure
 
@@ -116,13 +117,34 @@ npm start
 
 Base URL: `http://localhost:5000/api/v1`
 
+### Root Endpoint
+
+```
+GET /
+```
+
+Returns system information, version, and available endpoints.
+
 ### Read routes (active)
 
-- `GET /did/:didHash`
-- `GET /credential/:credentialId`
-- `GET /audit/did/:didHash`
-- `GET /audit/recent/:limit`
-- `GET /health`
+**DID Operations:**
+
+- `GET /did/:didHash` - Retrieve DID document with owner, public key, schema hash, and timestamps
+
+**Credential Operations:**
+
+- `GET /credential/:credentialId` - Retrieve credential details including issuer/subject DIDs, type, and timestamps
+
+**Audit Trail Operations:**
+
+- `GET /audit/did/:didHash` - Retrieve full audit trail for a specific DID with enriched data
+- `GET /audit/did/:didHash/ids` - Retrieve audit record IDs only for a DID (lightweight, faster variant)
+- `GET /audit/credential/:credentialId` - Retrieve audit trail for a specific credential
+- `GET /audit/recent/:limit` - Retrieve the N most recent audit records system-wide
+
+**System Health:**
+
+- `GET /health` - Check blockchain connection status, block number, gas price, and contract deployment status
 
 ### Write routes (intentionally disabled server-side)
 
@@ -143,16 +165,25 @@ These routes return HTTP 410 with guidance to use MetaMask in frontend:
 ### CredentialRegistry
 
 - Constructor requires `auditLog` address.
-- RBAC fields:
-  - `owner`
-  - `mapping(address => bool) public isIssuer`
-- Access control:
+- **Academic Certificate Issuance**:
+  - `issueCredential(issuerDID, subjectDID, credentialType, credentialHash, expiryDays)`
+  - Accepts credential type (set to `"ACADEMIC_CERTIFICATE"` in Phase 2)
+  - Stores only hash of certificate payload on-chain (full data stored off-chain)
+  - Default expiry: 3650 days (10 years)
+  - Emits `CredentialIssued` event with credential ID
+- **RBAC fields**:
+  - `owner` (deployer)
+  - `mapping(address => bool) public isIssuer` (authorized issuers only)
+- **Access control**:
   - `addIssuer(address)` only by owner
-  - `issueCredential(...)` requires `onlyIssuer`
-- Audit integration:
-  - Logs `CREDENTIAL_ISSUED` and `CREDENTIAL_VERIFIED` to `AuditLog`.
-- Presentation field naming:
-  - Uses `proofHash` (not `zeroKnowledgeProof`).
+  - `issueCredential(...)` requires `onlyIssuer` modifier
+  - `verifyCredential(...)` marks certificate verified and logs action
+- **Audit integration**:
+  - Logs `CREDENTIAL_ISSUED` when certificate issued
+  - Logs `CREDENTIAL_VERIFIED` when certificate verified
+  - Both logged to `AuditLog` with timestamp and actor address
+- **Field naming**:
+  - Uses `proofHash` for tamper-proof hash of certificate payload
 
 ### AuditLog
 
@@ -163,13 +194,18 @@ These routes return HTTP 410 with guidance to use MetaMask in frontend:
 
 In `frontend/src/App.js`:
 
-- `getSigner()` uses `ethers.BrowserProvider(window.ethereum)`.
-- DID registration and credential issue/verify use direct contract calls with signer.
-- Proof payload is hashed before issue:
-
-```js
-const proofHash = keccak256(toUtf8Bytes(JSON.stringify(data)));
-```
+- `getSigner()` uses `ethers.BrowserProvider(window.ethereum)` to connect MetaMask.
+- **Phase 1 - DID Registration**: Student registers identity (binds wallet to DID).
+- **Phase 2 - Academic Certificate Portal**:
+  - Form fields: student wallet address, student name, college, course, grade, passing year
+  - Input validation: all fields required; student wallet must be valid Ethereum address
+  - Off-chain payload: JSON object with certificate metadata + timestamp
+  - Hash storage: `proofHash = keccak256(toUtf8Bytes(JSON.stringify(payload)))`
+  - Smart contract call: `issueCredential(issuerDID, subjectDID, "ACADEMIC_CERTIFICATE", proofHash, 3650)`
+  - QR generation: creates shareable QR code with URL containing credential ID
+  - Verification: accepts raw credential ID or QR URL (auto-normalizes)
+  - Audit trail: displays issued/verified events with actor and timestamp
+- **Phase 3 - Audit Inspection**: Backend read APIs for audit trails and certificate details
 
 ## Test Status
 
@@ -189,6 +225,9 @@ Expected:
 - If issue credential reverts with authorization error, ensure deployer (owner) has added intended issuer via `addIssuer`.
 - If backend health fails, verify `backend/.env` contract addresses and Ganache RPC URL.
 
-## Notes
+## Implementation Notes
 
-This documentation reflects the implementation currently present in this repository. No zero-knowledge proving system is implemented; only hash-based proof placeholders are used.
+- **Certificate Storage Model**: Full certificate data (student name, college, course, grade, year, issuance date) is kept off-chain. Only a keccak256 hash of the certificate payload is stored on-chain. This ensures tamper-proof integrity while minimizing blockchain storage cost.
+- **QR Code Workflow**: Each issued certificate generates a QR code containing a verification URL with the credential ID. Students and employers can scan the QR to quickly access verification.
+- **No Zero-Knowledge Proof**: The system uses hash-based proof storage (`proofHash`), not cryptographic zero-knowledge verification. This is a practical trade-off for a local demo system.
+- **Issuer Control**: Only authorized issuers (managed by contract owner via `addIssuer()`) can issue certificates. This prevents credential inflation.

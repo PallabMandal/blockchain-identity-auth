@@ -87,17 +87,33 @@ VQk3A0v3f0hTz8S2d9W7pA5q5mYq9m+Wc9xWQw8Q2sJ3jP1u3vLkN0RzVw==
 - Approve MetaMask prompts.
 - Expect success message with DID hash.
 
-### Credential Issue + Verify (frontend)
+### Credential Issue + Verify (Academic Certificate) (frontend)
 
-- Phase 2: click issue.
-- Approve MetaMask tx.
+- Phase 2: Fill academic certificate form:
+  - Student Wallet Address: paste student's 0x wallet address
+  - Student Name: full name
+  - College Name: institution name
+  - Course: course name
+  - Grade: final grade
+  - Passing Year: graduation year
+- Click **Issue Academic Certificate**.
+- Approve MetaMask tx; app logs `CREDENTIAL_ISSUED` action on-chain.
 - App extracts `credentialId` from emitted event.
-- Click verify and approve MetaMask tx.
+- **QR Code** appears with shareable URL containing credential ID.
+- Student/employer can:
+  - Paste raw credential ID into verification input, OR
+  - Scan QR code and paste the URL into verification input.
+- Click **Get Details** to fetch certificate from backend (issuer, student, timestamps, status).
+- Click **Verify** to mark credential verified on-chain; logs `CREDENTIAL_VERIFIED` action.
+- **Audit Trail** displays all operations (issued, verified) with actor addresses and timestamps.
 
 ### Audit Reads (backend read API)
 
 - Phase 3 uses backend read routes:
-  - GET `/audit/did/:didHash`
+  - GET `/audit/did/:didHash` - Full audit trail with enriched DID string
+  - GET `/audit/did/:didHash/ids` - Audit record IDs only (lightweight)
+  - GET `/audit/credential/:credentialId` - Audit trail for a credential
+  - GET `/audit/recent/:limit` - Most recent N audit records system-wide
   - GET `/audit/recent/:limit`
 
 ## API Notes
@@ -129,4 +145,8 @@ Expected: 1 passing test for credential issuance.
 
 ## Important Accuracy Note
 
-The system does not implement a true zero-knowledge proof protocol. It currently uses a hash-based proof field (`proofHash`).
+The system uses hash-based proof storage (`proofHash`) on-chain:
+
+- Full certificate data (name, college, course, grade, year, timestamp) is stored off-chain.
+- Only the keccak256 hash of the certificate payload is stored on-chain (immutable and tamper-proof).
+- This keeps on-chain storage minimal while ensuring certificate integrity.
