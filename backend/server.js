@@ -54,11 +54,11 @@ app.use((err, req, res, next) => {
 // Start server
 const PORT = config.port;
 app.listen(PORT, () => {
-    console.log(`\n✅ Blockchain Identity Authentication Backend`);
-    console.log(`📍 Server running on http://localhost:${PORT}`);
-    console.log(`🔗 Connected to Ganache at ${config.ganacheRpcUrl}`);
-    console.log(`📡 Network ID: ${config.networkId}`);
-    console.log(`\n📚 API Documentation: http://localhost:${PORT}`);
+    console.log(`\nBlockchain Identity Authentication Backend`);
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Connected to Ganache at ${config.ganacheRpcUrl}`);
+    console.log(`Network ID: ${config.networkId}`);
+    console.log(`\nAPI Documentation: http://localhost:${PORT}`);
 });
 
 module.exports = app;

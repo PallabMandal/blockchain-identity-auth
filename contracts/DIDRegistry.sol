@@ -39,7 +39,6 @@ contract DIDRegistry {
         bytes32 _schemaHash
     ) external {
         require(bytes(_didString).length > 0, "DID string required");
-        require(bytes(_publicKey).length > 0, "Public key required");
         require(schemaRegistry[_schemaHash], "Schema not registered");
         
         bytes32 didHash = keccak256(abi.encodePacked(_didString));

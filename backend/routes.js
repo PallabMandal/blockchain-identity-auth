@@ -168,6 +168,7 @@ router.get('/credential/:credentialId', async (req, res) => {
                 issuerDID: credential.issuerDID,
                 subjectDID: credential.subjectDID,
                 credentialType: credential.credentialType,
+                credentialHash: credential.credentialHash,
                 issuedAt: parseInt(credential.issuedAt),
                 expiresAt: parseInt(credential.expiresAt),
                 revoked: credential.revoked,

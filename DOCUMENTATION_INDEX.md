@@ -5,22 +5,27 @@ This index points to documentation that matches the current code implementation.
 ## Core Docs
 
 1. `START_HERE.md`
+
    - Fastest accurate overview.
    - Use this first.
 
 2. `QUICK_START.md`
+
    - Command-first setup/run instructions.
    - Includes API behavior notes (active reads, disabled writes).
 
 3. `SETUP_GUIDE.md`
+
    - Detailed setup and component-level behavior.
    - Includes current contract and backend/frontend flow details.
 
 4. `ARCHITECTURE.md`
+
    - Architecture and trust/signing model.
    - Documents RBAC, AuditLog integration, and deployment wiring.
 
 5. `README.md`
+
    - Full project guide and troubleshooting.
 
 6. `PROJECT_SUMMARY.md`
@@ -36,5 +41,7 @@ These markdown files are aligned to code currently present in this repository:
 - Credential issuance is issuer-RBAC protected.
 - Proof terminology is hash-based (`proofHash`).
 - Chain ID defaults are 1337.
+- Credential verification includes hash-based integrity checking: verifyCredential requires payload hash and compares against stored on-chain hash.
+- Tampering detection: any modification to certificate data will cause hash mismatch and fail verification.
 
 If code changes, re-validate docs before presenting externally.

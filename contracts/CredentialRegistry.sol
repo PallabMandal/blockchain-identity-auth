@@ -117,11 +117,13 @@ contract CredentialRegistry {
     /**
      * @dev Verify a credential (used by verifiers)
      * @param _credentialId Hash of the credential
+     * @param _submittedHash Hash of the submitted certificate payload for integrity verification
      */
-    function verifyCredential(bytes32 _credentialId) external {
+    function verifyCredential(bytes32 _credentialId, bytes32 _submittedHash) external {
         VerifiableCredential storage cred = credentials[_credentialId];
         
         require(cred.credentialId != 0, "Credential not found");
+        require(cred.credentialHash == _submittedHash, "Credential data mismatch: payload does not match stored commitment");
         require(!cred.revoked, "Credential is revoked");
         require(block.timestamp <= cred.expiresAt, "Credential expired");
         
@@ -131,7 +133,7 @@ contract CredentialRegistry {
             AuditLog.ActionType.CREDENTIAL_VERIFIED,
             cred.subjectDID,
             _credentialId,
-            "Credential verified",
+            "Credential verified and integrity confirmed",
             ""
         );
     }
@@ -215,7 +217,7 @@ contract CredentialRegistry {
     }
     
     /**
-     * @dev Get credential details
+     * @dev Get credential details (includes credentialHash for integrity verification)
      * @param _credentialId Hash of the credential
      */
     function getCredential(bytes32 _credentialId) 
@@ -224,6 +226,20 @@ contract CredentialRegistry {
         returns (VerifiableCredential memory) 
     {
         return credentials[_credentialId];
+    }
+    
+    /**
+     * @dev Verify credential integrity by comparing payload hash
+     * @param _credentialId Hash of the credential
+     * @param _payloadHash Hash of the certificate payload to verify
+     */
+    function verifyCredentialIntegrity(bytes32 _credentialId, bytes32 _payloadHash)
+        external
+        view
+        returns (bool)
+    {
+        VerifiableCredential memory cred = credentials[_credentialId];
+        return cred.credentialId != 0 && cred.credentialHash == _payloadHash;
     }
     
     /**

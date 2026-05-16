@@ -13,7 +13,8 @@ const DID_REGISTRY_ABI = [
 
 const CREDENTIAL_REGISTRY_ABI = [
     'function issueCredential(bytes32 _issuerDID, bytes32 _subjectDID, string _credentialType, bytes32 _credentialHash, uint256 _expiryDays) external',
-    'function verifyCredential(bytes32 _credentialId) external',
+    'function verifyCredential(bytes32 _credentialId, bytes32 _submittedHash) external',
+    'function verifyCredentialIntegrity(bytes32 _credentialId, bytes32 _payloadHash) view returns (bool)',
     'event CredentialIssued(bytes32 indexed credentialId, bytes32 indexed issuerDID, bytes32 indexed subjectDID, uint256 expiresAt)'
 ];
 
@@ -108,7 +109,7 @@ const App = () => {
     return (
         <div className="container">
             <header className="header">
-                <h1>🔐 Blockchain-Based Secure Identity Authentication</h1>
+                <h1>Blockchain-Based Secure Identity Authentication</h1>
                 <div className="account-info">
                     {account && (
                         <>
@@ -192,7 +193,7 @@ const App = () => {
 
             {health && (
                 <footer className="footer">
-                    <p>✅ Connected to Blockchain | Block: {health.blockchain?.blockNumber} | Gas: {health.blockchain?.gasPrice}</p>
+                    <p>Connected to Blockchain | Block: {health.blockchain?.blockNumber} | Gas: {health.blockchain?.gasPrice}</p>
                 </footer>
             )}
         </div>
@@ -202,11 +203,10 @@ const App = () => {
 // Phase 1: Registration & Issuance Component
 const Phase1Component = ({ account, contractAddresses, setMessage, loading, setLoading, getErrorMessage }) => {
     const [didString, setDidString] = useState('');
-    const [publicKey, setPublicKey] = useState('');
 
     const handleRegisterDID = async () => {
-        if (!didString || !publicKey) {
-            setMessage('Error: Please fill all fields');
+        if (!didString) {
+            setMessage('Error: Please enter a DID string');
             return;
         }
 
@@ -245,7 +245,7 @@ const Phase1Component = ({ account, contractAddresses, setMessage, loading, setL
                 await registerSchemaTx.wait();
             }
 
-            const registerDidTx = await didRegistry.registerDID(didString, publicKey, schemaHash);
+            const registerDidTx = await didRegistry.registerDID(didString, '', schemaHash);
             await registerDidTx.wait();
             const didHash = keccak256(toUtf8Bytes(didString));
 
@@ -269,7 +269,6 @@ const Phase1Component = ({ account, contractAddresses, setMessage, loading, setL
 
             setMessage(`Success: DID registered! Hash: ${didHash}`);
             setDidString('');
-            setPublicKey('');
         } catch (error) {
             setMessage('Error: ' + getErrorMessage(error));
         } finally {
@@ -279,7 +278,7 @@ const Phase1Component = ({ account, contractAddresses, setMessage, loading, setL
 
     return (
         <div className="phase-content">
-            <h2>📋 Phase 1: Registration & Issuance</h2>
+            <h2>Phase 1: Registration & Issuance</h2>
             <p>Register your Decentralized Identifier (DID) and create verifiable credentials</p>
 
             <div className="form">
@@ -294,22 +293,12 @@ const Phase1Component = ({ account, contractAddresses, setMessage, loading, setL
                     />
                 </div>
 
-                <div className="form-group">
-                    <label>Public Key</label>
-                    <textarea
-                        value={publicKey}
-                        onChange={(e) => setPublicKey(e.target.value)}
-                        placeholder="Enter your public key"
-                        disabled={loading}
-                    />
-                </div>
-
                 <button
                     onClick={handleRegisterDID}
                     disabled={loading}
                     className="btn-primary"
                 >
-                    {loading ? 'Processing...' : '✅ Register DID'}
+                    {loading ? 'Processing...' : 'Register DID'}
                 </button>
             </div>
         </div>
@@ -497,11 +486,32 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                 signer
             );
 
-            const tx = await credentialRegistry.verifyCredential(normalizedId);
+            // Step 1: Get credential details to verify payload integrity
+            const credential = await credentialRegistry.getCredential(normalizedId);
+            if (!credential || !credential.credentialId || credential.credentialId === ZERO_BYTES32) {
+                throw new Error('Credential not found on-chain');
+            }
+
+            // Step 2: If we have stored payload, verify its hash
+            if (certificatePayload) {
+                const payloadHash = keccak256(toUtf8Bytes(JSON.stringify(certificatePayload)));
+                if (payloadHash !== credential.credentialHash) {
+                    throw new Error('Credential data mismatch: submitted payload does not match on-chain commitment. Possible tampering detected.');
+                }
+            } else {
+                setMessage('Warning: Verifying credential without payload check. For full integrity verification, re-issue or retrieve the certificate payload.');
+            }
+
+            // Step 3: Perform on-chain verification with hash
+            const payloadHashToSubmit = certificatePayload
+                ? keccak256(toUtf8Bytes(JSON.stringify(certificatePayload)))
+                : credential.credentialHash;
+
+            const tx = await credentialRegistry.verifyCredential(normalizedId, payloadHashToSubmit);
             await tx.wait();
 
             setCredentialId(normalizedId);
-            setMessage('Success: Credential verified!');
+            setMessage('Success: Credential verified and integrity confirmed!');
         } catch (error) {
             setMessage('Error: ' + getErrorMessage(error));
         } finally {
@@ -535,7 +545,7 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 
     return (
         <div className="phase-content">
-            <h2>🔐 Phase 2: Authentication & Verification</h2>
+            <h2>Phase 2: Authentication & Verification</h2>
             <p>Issue, verify, and audit academic certificates using on-chain credential hashes</p>
 
             <div className="form">
@@ -610,7 +620,7 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                     disabled={loading}
                     className="btn-primary"
                 >
-                    {loading ? 'Issuing...' : '🎓 Issue Academic Certificate'}
+                    {loading ? 'Issuing...' : 'Issue Academic Certificate'}
                 </button>
 
                 {issuedCredentialId && (
@@ -626,7 +636,7 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                             disabled={loading}
                             className="btn-primary"
                         >
-                            {loading ? 'Verifying...' : '✅ Verify'}
+                            {loading ? 'Verifying...' : 'Verify & Check Integrity'}
                         </button>
                     </div>
                 )}
@@ -648,7 +658,7 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                         disabled={loading}
                         className="btn-primary"
                     >
-                        {loading ? 'Loading...' : '📄 Get Details'}
+                        {loading ? 'Loading...' : 'Get Details'}
                     </button>
 
                     <button
@@ -656,7 +666,7 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                         disabled={loading}
                         className="btn-primary"
                     >
-                        {loading ? 'Verifying...' : '✅ Verify'}
+                        {loading ? 'Verifying...' : 'Verify & Check Integrity'}
                     </button>
                 </div>
             </div>
@@ -759,7 +769,7 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
 
     return (
         <div className="phase-content">
-            <h2>📊 Phase 3: Access & Audit</h2>
+            <h2>Phase 3: Access & Audit</h2>
             <p>Grant/Deny access and maintain immutable audit trail of all operations</p>
 
             <div className="form">
@@ -780,7 +790,7 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                         disabled={loading}
                         className="btn-primary"
                     >
-                        {loading ? 'Loading...' : '🔢 DID Audit IDs'}
+                        {loading ? 'Loading...' : 'DID Audit IDs'}
                     </button>
 
                     <button
@@ -788,7 +798,7 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                         disabled={loading}
                         className="btn-primary"
                     >
-                        {loading ? 'Loading...' : '🧾 DID Audit Records'}
+                        {loading ? 'Loading...' : 'DID Audit Records'}
                     </button>
 
                     <button
@@ -796,7 +806,7 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                         disabled={loading}
                         className="btn-primary"
                     >
-                        {loading ? 'Loading...' : '📋 Recent Records'}
+                        {loading ? 'Loading...' : 'Recent Records'}
                     </button>
                 </div>
             </div>

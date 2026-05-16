@@ -129,7 +129,7 @@ Returns system information, version, and available endpoints.
 
 **DID Operations:**
 
-- `GET /did/:didHash` - Retrieve DID document with owner, public key, schema hash, and timestamps
+- `GET /did/:didHash` - Retrieve DID document with owner, DID string, public key, schema hash, and timestamps
 
 **Credential Operations:**
 
@@ -177,10 +177,11 @@ These routes return HTTP 410 with guidance to use MetaMask in frontend:
 - **Access control**:
   - `addIssuer(address)` only by owner
   - `issueCredential(...)` requires `onlyIssuer` modifier
-  - `verifyCredential(...)` marks certificate verified and logs action
+  - `verifyCredential(credentialId, submittedHash)` performs hash-based integrity verification before marking credential verified
+  - Hash mismatch detection: rejects credentials if payload hash differs from stored `credentialHash` (detects grade/data tampering)
 - **Audit integration**:
   - Logs `CREDENTIAL_ISSUED` when certificate issued
-  - Logs `CREDENTIAL_VERIFIED` when certificate verified
+  - Logs `CREDENTIAL_VERIFIED` when certificate verified and integrity confirmed
   - Both logged to `AuditLog` with timestamp and actor address
 - **Field naming**:
   - Uses `proofHash` for tamper-proof hash of certificate payload
@@ -224,6 +225,37 @@ Expected:
 - If writes fail in frontend, confirm MetaMask is connected to chain ID 1337 and correct account is selected.
 - If issue credential reverts with authorization error, ensure deployer (owner) has added intended issuer via `addIssuer`.
 - If backend health fails, verify `backend/.env` contract addresses and Ganache RPC URL.
+
+## Security & Integrity Verification
+
+### Hash-Based Credential Integrity
+
+When a credential is issued:
+
+1. The full certificate data (name, grade, college, etc.) is stored off-chain as JSON.
+2. A `keccak256` hash of this payload is computed and stored on-chain as `credentialHash`.
+3. This creates a tamper-proof commitment: any change to the certificate data will produce a different hash.
+
+During verification:
+
+1. The verifier (employer, etc.) provides the credential ID and optionally the full certificate payload.
+2. The frontend recomputes the hash of the provided payload.
+3. This computed hash is compared against the stored `credentialHash` on-chain.
+4. **If hashes match**: The credential is verified and marked on-chain with a confirmation.
+5. **If hashes differ**: Verification fails with "Credential data mismatch - possible tampering detected" error.
+
+### Tampering Detection
+
+This design detects:
+
+- **Grade tampering**: If someone tries to change the grade after issuance, the hash will differ.
+- **Payload modification**: Any modification to student name, college, course, or passing year will be detected.
+- **Partial changes**: Even a single field change invalidates the hash.
+
+### Limitations
+
+- If the certificate payload is not available during verification (e.g., only the credential ID is provided), the system issues a warning and proceeds without full integrity check.
+- The system does not prevent unauthorized data storage off-chain; it only ensures on-chain integrity of registered hashes.
 
 ## Implementation Notes
 

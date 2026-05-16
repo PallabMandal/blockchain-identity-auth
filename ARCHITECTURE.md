@@ -32,7 +32,7 @@ This document describes the architecture currently implemented in code.
 Responsibilities:
 
 - Register credential schema hashes.
-- Register DID documents (owner, DID string, public key, schema hash).
+- Register DID documents (owner, DID string, public key field, schema hash).
 - Read DID state.
 
 ### CredentialRegistry
@@ -143,8 +143,16 @@ The following routes exist but intentionally return HTTP 410 to enforce wallet-b
 8. Verification flow (employer/verifier):
    - Inputs credential ID (raw or from QR URL).
    - Frontend normalizes input (extracts credentialId from QR URL if needed).
-   - Calls `CredentialRegistry.verifyCredential(credentialId)` via signer.
-   - Contract sets `verified=true` and logs `CREDENTIAL_VERIFIED` to `AuditLog`.
+   - Frontend fetches on-chain credential record (includes `credentialHash`).
+   - **Integrity check**: If certificate payload is available, frontend computes `keccak256(payload)` and compares with stored `credentialHash`. If hashes differ, verification fails with "possible tampering detected" error.
+   - If integrity check passes, frontend calls `CredentialRegistry.verifyCredential(credentialId, submittedHash)` with the payload hash via signer.
+   - Contract validates:
+     - Credential exists
+     - Hash of submitted payload matches stored `credentialHash`
+     - Credential is not revoked
+     - Credential is not expired
+   - If all checks pass, contract sets `verified=true` and logs `CREDENTIAL_VERIFIED` to `AuditLog` with note "Credential verified and integrity confirmed".
+   - If hash mismatch, verification fails with "Credential data mismatch" error.
 9. Audit trail:
    - Frontend calls backend `GET /api/v1/audit/credential/:credentialId`.
    - Returns list of audit records: issued, verified, with actor address and timestamp.

@@ -10,6 +10,7 @@ Use this file as the shortest trustworthy entry point.
 - **Backend Read-Only**: Backend provides read APIs for credentials and audit trails; write APIs intentionally return HTTP 410.
 - **Issuer Control**: Certificate issuance is RBAC-restricted to authorized issuers on-chain.
 - **Audit Trail**: All certificate operations logged immutably; queryable per credential.
+- **Integrity Verification**: During credential verification, the system computes and compares the hash of the certificate payload against the on-chain stored hash. Any tampering (grade changes, name modifications, etc.) will be detected and cause verification to fail.
 - **Chain ID**: Defaults to `1337` for Ganache.
 
 ## Minimal Run Steps

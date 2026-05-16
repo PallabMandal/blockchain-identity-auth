@@ -30,12 +30,12 @@ Deployment order is:
 2. AuditLog
 3. CredentialRegistry (constructor receives AuditLog address)
 
-## 3. Configure Backend
+<!-- ## 3. Configure Backend
 
 ```bash
 cd backend
 copy .env.example .env
-```
+``` -->
 
 Fill deployed addresses in `backend/.env` and verify:
 
@@ -74,15 +74,7 @@ npm start
 ### DID Registration (frontend)
 
 - Open app at `http://localhost:3000`.
-- Phase 1: enter DID string and public key.
-- Example public key value:
-
-```text
------BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE6M6lM1Q7m9qk3wQ6F2f9xWJbWw4h
-VQk3A0v3f0hTz8S2d9W7pA5q5mYq9m+Wc9xWQw8Q2sJ3jP1u3vLkN0RzVw==
------END PUBLIC KEY-----
-```
+- Phase 1: enter DID string only.
 
 - Approve MetaMask prompts.
 - Expect success message with DID hash.
@@ -98,13 +90,19 @@ VQk3A0v3f0hTz8S2d9W7pA5q5mYq9m+Wc9xWQw8Q2sJ3jP1u3vLkN0RzVw==
   - Passing Year: graduation year
 - Click **Issue Academic Certificate**.
 - Approve MetaMask tx; app logs `CREDENTIAL_ISSUED` action on-chain.
+- App computes `keccak256(credentialPayload)` and stores the hash on-chain as `credentialHash`.
 - App extracts `credentialId` from emitted event.
 - **QR Code** appears with shareable URL containing credential ID.
 - Student/employer can:
   - Paste raw credential ID into verification input, OR
   - Scan QR code and paste the URL into verification input.
-- Click **Get Details** to fetch certificate from backend (issuer, student, timestamps, status).
-- Click **Verify** to mark credential verified on-chain; logs `CREDENTIAL_VERIFIED` action.
+- Click **Get Details** to fetch certificate from backend (issuer, student, timestamps, status, **credentialHash**).
+- **Integrity Check**: The app automatically recomputes the hash of the stored certificate payload and compares it against the on-chain `credentialHash`. If the grade or any field was tampered with, the hash will differ and verification will fail.
+- Click **Verify & Check Integrity** to mark credential verified on-chain. This step:
+  1. Fetches the on-chain credential record.
+  2. Verifies the hash of your payload matches the stored `credentialHash` (detects tampering).
+  3. Checks credential exists, is not revoked, and not expired.
+  4. Logs `CREDENTIAL_VERIFIED` action on-chain.
 - **Audit Trail** displays all operations (issued, verified) with actor addresses and timestamps.
 
 ### Audit Reads (backend read API)

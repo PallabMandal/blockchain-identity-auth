@@ -18,6 +18,12 @@
 5. Integrated `AuditLog` calls in issue/verify credential flows.
 6. Aligned network defaults to chain ID 1337.
 7. Added working Hardhat test in `test/credential.js`.
+8. **NEW: Implemented hash-based credential integrity verification**:
+   - `verifyCredential()` now requires both credential ID and payload hash as parameters.
+   - Contract validates hash of submitted payload against stored `credentialHash` during verification.
+   - Detects tampering: any modification to certificate data (grade, name, college, etc.) will cause hash mismatch and fail verification.
+   - Frontend computes `keccak256(JSON.stringify(payload))` and compares against on-chain commitment before verification.
+   - Audit logs include integrity confirmation status.
 
 ## What Works Now
 

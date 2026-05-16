@@ -180,11 +180,24 @@ const CredentialRegistryABI = [
     },
     {
         "inputs": [
-            { "internalType": "bytes32", "name": "_credentialId", "type": "bytes32" }
+            { "internalType": "bytes32", "name": "_credentialId", "type": "bytes32" },
+            { "internalType": "bytes32", "name": "_submittedHash", "type": "bytes32" }
         ],
         "name": "verifyCredential",
         "outputs": [],
         "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            { "internalType": "bytes32", "name": "_credentialId", "type": "bytes32" },
+            { "internalType": "bytes32", "name": "_payloadHash", "type": "bytes32" }
+        ],
+        "name": "verifyCredentialIntegrity",
+        "outputs": [
+            { "internalType": "bool", "name": "", "type": "bool" }
+        ],
+        "stateMutability": "view",
         "type": "function"
     },
     {
