@@ -13,6 +13,8 @@ const DID_REGISTRY_ABI = [
 
 const CREDENTIAL_REGISTRY_ABI = [
     'function issueCredential(bytes32 _issuerDID, bytes32 _subjectDID, string _credentialType, bytes32 _credentialHash, uint256 _expiryDays) external',
+    'function isIssuer(address _issuer) view returns (bool)',
+    'function getCredential(bytes32 _credentialId) view returns (tuple(bytes32 credentialId, bytes32 issuerDID, bytes32 subjectDID, string credentialType, bytes32 credentialHash, uint256 issuedAt, uint256 expiresAt, bool revoked, bool verified))',
     'function verifyCredential(bytes32 _credentialId, bytes32 _submittedHash) external',
     'function verifyCredentialIntegrity(bytes32 _credentialId, bytes32 _payloadHash) view returns (bool)',
     'event CredentialIssued(bytes32 indexed credentialId, bytes32 indexed issuerDID, bytes32 indexed subjectDID, uint256 expiresAt)'
@@ -308,7 +310,6 @@ const Phase1Component = ({ account, contractAddresses, setMessage, loading, setL
 // Phase 2: Authentication & Verification Component
 const Phase2Component = ({ account, contractAddresses, setMessage, loading, setLoading, getErrorMessage }) => {
     const [credentialId, setCredentialId] = useState('');
-    const [credentialDetails, setCredentialDetails] = useState(null);
     const [studentAddress, setStudentAddress] = useState('');
     const [studentName, setStudentName] = useState('');
     const [collegeName, setCollegeName] = useState('');
@@ -319,7 +320,6 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
     const [issuedCredentialId, setIssuedCredentialId] = useState('');
     const [qrValue, setQrValue] = useState('');
     const [certificatePayload, setCertificatePayload] = useState(null);
-    const [credentialAuditRecords, setCredentialAuditRecords] = useState([]);
 
     const normalizeCredentialId = (value) => {
         const trimmed = (value || '').trim();
@@ -378,6 +378,12 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                 signer
             );
 
+            const issuerAddress = await signer.getAddress();
+            const isAuthorizedIssuer = await credentialRegistry.isIssuer(issuerAddress);
+            if (!isAuthorizedIssuer) {
+                throw new Error('Only an authorized issuer account can issue academic certificates. Please switch to the admin or issuer wallet.');
+            }
+
             const didRegistryAddress = getContractAddress(
                 contractAddresses,
                 'didRegistry',
@@ -390,7 +396,6 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 
             const didRegistry = new ethers.Contract(didRegistryAddress, DID_REGISTRY_ABI, signer);
 
-            const issuerAddress = await signer.getAddress();
             const issuerDID = await didRegistry.getDIDFromAddress(issuerAddress);
             if (!issuerDID || issuerDID === ZERO_BYTES32) {
                 throw new Error('No DID found for issuer wallet. Register issuer DID in Phase 1 first.');
@@ -446,7 +451,6 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
             setIssuedCredentialId(issuedCredentialId);
             setQrValue(qrLink);
             setCertificatePayload(payload);
-            setCredentialAuditRecords([]);
             setCredentialId(issuedCredentialId);
             setMessage(`Success: Credential issued! ID: ${issuedCredentialId.substring(0, 14)}...`);
         } catch (error) {
@@ -513,30 +517,6 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
             setCredentialId(normalizedId);
             setMessage('Success: Credential verified and integrity confirmed!');
         } catch (error) {
-            setMessage('Error: ' + getErrorMessage(error));
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleGetCredential = async () => {
-        const normalizedId = normalizeCredentialId(credentialId);
-        if (!normalizedId) {
-            setMessage('Error: Please enter credential ID');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const result = await APIService.getCredential(normalizedId);
-            setCredentialDetails(result.credential);
-            setCredentialId(normalizedId);
-
-            const auditResult = await APIService.getCredentialAuditTrail(normalizedId);
-            setCredentialAuditRecords(Array.isArray(auditResult.records) ? auditResult.records : []);
-            setMessage('Success: Credential details retrieved!');
-        } catch (error) {
-            setCredentialAuditRecords([]);
             setMessage('Error: ' + getErrorMessage(error));
         } finally {
             setLoading(false);
@@ -631,13 +611,6 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                             <QRCode value={qrValue} size={180} />
                         </div>
                         <pre>{JSON.stringify(certificatePayload, null, 2)}</pre>
-                        <button
-                            onClick={handleVerifyCredential}
-                            disabled={loading}
-                            className="btn-primary"
-                        >
-                            {loading ? 'Verifying...' : 'Verify & Check Integrity'}
-                        </button>
                     </div>
                 )}
 
@@ -654,14 +627,6 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 
                 <div className="button-group">
                     <button
-                        onClick={handleGetCredential}
-                        disabled={loading}
-                        className="btn-primary"
-                    >
-                        {loading ? 'Loading...' : 'Get Details'}
-                    </button>
-
-                    <button
                         onClick={handleVerifyCredential}
                         disabled={loading}
                         className="btn-primary"
@@ -671,42 +636,6 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                 </div>
             </div>
 
-            {credentialDetails && (
-                <div className="details-panel">
-                    <h3>Credential Details</h3>
-                    <pre>{JSON.stringify(credentialDetails, null, 2)}</pre>
-                </div>
-            )}
-
-            {credentialAuditRecords.length > 0 && (
-                <div className="details-panel">
-                    <h3>Credential Audit Trail</h3>
-                    <div className="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Record ID</th>
-                                    <th>Action</th>
-                                    <th>Actor</th>
-                                    <th>Timestamp</th>
-                                    <th>Details</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {credentialAuditRecords.map((record) => (
-                                    <tr key={record.recordId}>
-                                        <td>{record.recordId}</td>
-                                        <td>{formatAuditAction(record.action)}</td>
-                                        <td>{record.actor}</td>
-                                        <td>{new Date(record.timestamp * 1000).toLocaleString()}</td>
-                                        <td>{record.details || 'N/A'}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

@@ -1,6 +1,6 @@
-const fs = require('fs');
 const path = require('path');
 const { ethers } = require('hardhat');
+const { writeContractAddresses } = require('./env');
 
 async function resolveDeployer() {
     const signers = await ethers.getSigners();
@@ -54,14 +54,11 @@ async function main() {
 
     // Save addresses to backend/.env
     const envPath = path.resolve(__dirname, '../backend/.env');
-    const envContent = `
-# Smart Contract Addresses
-DID_REGISTRY_ADDRESS=${didRegistryAddress}
-CREDENTIAL_REGISTRY_ADDRESS=${credentialRegistryAddress}
-AUDIT_LOG_ADDRESS=${auditLogAddress}
-`;
-
-    fs.appendFileSync(envPath, envContent);
+    writeContractAddresses(envPath, {
+        didRegistryAddress,
+        credentialRegistryAddress,
+        auditLogAddress
+    });
     console.log('Contract addresses saved to backend/.env\n');
 
     console.log('Deployment complete!');
@@ -72,9 +69,11 @@ AUDIT_LOG_ADDRESS=${auditLogAddress}
     console.log('==============================\n');
 }
 
-main()
-    .then(() => process.exit(0))
-    .catch((error) => {
-        console.error(error);
-        process.exit(1);
-    });
+if (require.main === module) {
+    main()
+        .then(() => process.exit(0))
+        .catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+}
