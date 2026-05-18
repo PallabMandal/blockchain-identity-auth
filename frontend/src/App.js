@@ -108,10 +108,10 @@ const App = () => {
 
     return (
         <div className="container">
-            <header className="header">
-                <h1>Blockchain-Based Secure Identity Authentication</h1>
-                <div className="account-info">
-                    {account && (
+            <header className={`header ${account ? 'has-account' : 'no-account'}`}>
+                <h1>Academic Certificate Verification Portal</h1>
+                {account && (
+                    <div className="account-info">
                         <>
                             <div className="info-item">
                                 <span className="label">Account:</span>
@@ -126,8 +126,8 @@ const App = () => {
                                 <span className="value">{networkId}</span>
                             </div>
                         </>
-                    )}
-                </div>
+                    </div>
+                )}
             </header>
 
             <nav className="phases">
