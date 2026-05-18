@@ -207,6 +207,10 @@ textarea {
     align-content: start;
 }
 
+.span-full {
+    grid-column: 1 / -1;
+}
+
 .form-group label {
     color: var(--muted);
     font-size: 11px;
@@ -398,6 +402,17 @@ table tbody tr:last-child td {
 
 table tbody tr:hover {
     background: #f1eee7;
+}
+
+.truncate-value {
+    display: inline-block;
+    max-width: 190px;
+    overflow: hidden;
+    color: var(--ink-soft);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: top;
+    cursor: help;
 }
 
 .footer {

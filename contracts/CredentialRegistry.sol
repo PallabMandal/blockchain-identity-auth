@@ -152,6 +152,13 @@ contract CredentialRegistry {
         revokedCredentials[_credentialId] = true;
         
         emit CredentialRevoked(_credentialId);
+        auditLog.logAction(
+            AuditLog.ActionType.CREDENTIAL_REVOKED,
+            cred.subjectDID,
+            _credentialId,
+            "Credential revoked",
+            ""
+        );
     }
     
     /**
@@ -195,6 +202,14 @@ contract CredentialRegistry {
             presentedAt: block.timestamp,
             verified: false
         });
+
+        auditLog.logAction(
+            AuditLog.ActionType.PRESENTATION_CREATED,
+            _subjectDID,
+            presentationId,
+            "Presentation created",
+            _proofHash
+        );
     }
     
     /**
@@ -214,6 +229,13 @@ contract CredentialRegistry {
         
         pres.verified = true;
         emit PresentationVerified(_presentationId, true);
+        auditLog.logAction(
+            AuditLog.ActionType.PRESENTATION_VERIFIED,
+            pres.subjectDID,
+            _presentationId,
+            "Presentation verified",
+            pres.proofHash
+        );
     }
     
     /**

@@ -48,6 +48,24 @@ const formatAuditAction = (action) => {
     return AUDIT_ACTION_LABELS[numericAction] || `UNKNOWN_ACTION_${numericAction}`;
 };
 
+const truncateMiddle = (value, start = 12, end = 8) => {
+    if (!value || value.length <= start + end + 3) {
+        return value || 'N/A';
+    }
+
+    if (end === 0) {
+        return `${value.slice(0, start)}...`;
+    }
+
+    return `${value.slice(0, start)}...${value.slice(-end)}`;
+};
+
+const TruncatedValue = ({ value, start, end }) => (
+    <span className="truncate-value" title={value || 'N/A'}>
+        {truncateMiddle(value, start, end)}
+    </span>
+);
+
 const getSigner = async () => {
     if (!window.ethereum) {
         alert('MetaMask not installed');
@@ -185,6 +203,7 @@ const App = () => {
                 {activePhase === 3 && (
                     <Phase3Component
                         account={account}
+                        contractAddresses={health?.contracts}
                         setMessage={setMessage}
                         loading={loading}
                         setLoading={setLoading}
@@ -641,11 +660,25 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 };
 
 // Phase 3: Access & Audit Component
-const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMessage }) => {
+const Phase3Component = ({ account, contractAddresses, setMessage, loading, setLoading, getErrorMessage }) => {
     const [didHash, setDidHash] = useState('');
+    const [relatedEntity, setRelatedEntity] = useState('');
+    const [accessDetails, setAccessDetails] = useState('');
     const [didAuditIds, setDidAuditIds] = useState(null);
     const [didAuditRecords, setDidAuditRecords] = useState(null);
     const [recentRecords, setRecentRecords] = useState(null);
+
+    const refreshAuditViews = async () => {
+        const [didRecordsResult, recentResult] = await Promise.all([
+            didHash ? APIService.getDIDAuditTrailRecords(didHash) : Promise.resolve(null),
+            APIService.getRecentAuditRecords(10)
+        ]);
+
+        if (didRecordsResult) {
+            setDidAuditRecords(didRecordsResult);
+        }
+        setRecentRecords(recentResult.records);
+    };
 
     const handleGetDIDAuditIds = async () => {
         if (!didHash) {
@@ -696,6 +729,57 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
         }
     };
 
+    const handleLogAccess = async (action) => {
+        if (!didHash) {
+            setMessage('Error: Please enter DID hash');
+            return;
+        }
+
+        if (!ethers.isHexString(didHash, 32)) {
+            setMessage('Error: DID hash must be a 32-byte hex value');
+            return;
+        }
+
+        if (relatedEntity && !ethers.isHexString(relatedEntity, 32)) {
+            setMessage('Error: Related entity must be a 32-byte hex value');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const auditLogAddress = getContractAddress(
+                contractAddresses,
+                'auditLog',
+                'REACT_APP_AUDIT_LOG_ADDRESS'
+            );
+
+            if (!auditLogAddress) {
+                throw new Error('AuditLog address is not configured');
+            }
+
+            const signer = await getSigner();
+            if (!signer) {
+                throw new Error('MetaMask signer not available');
+            }
+
+            const auditLog = new ethers.Contract(auditLogAddress, AUDIT_LOG_ABI, signer);
+            const tx = await auditLog.logAction(
+                action,
+                didHash,
+                relatedEntity || ZERO_BYTES32,
+                accessDetails || (action === 8 ? 'Access granted' : 'Access denied'),
+                ''
+            );
+            await tx.wait();
+            await refreshAuditViews();
+            setMessage(`Success: ${action === 8 ? 'Access granted' : 'Access denied'} logged!`);
+        } catch (error) {
+            setMessage('Error: ' + getErrorMessage(error));
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="phase-content">
             <h2>Phase 3: Access & Audit</h2>
@@ -709,6 +793,28 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                         value={didHash}
                         onChange={(e) => setDidHash(e.target.value)}
                         placeholder="Enter DID hash"
+                        disabled={loading}
+                    />
+                </div>
+
+                <div className="form-group">
+                    <label>Related Entity Hash (optional)</label>
+                    <input
+                        type="text"
+                        value={relatedEntity}
+                        onChange={(e) => setRelatedEntity(e.target.value)}
+                        placeholder="Credential ID, presentation ID, or DID hash"
+                        disabled={loading}
+                    />
+                </div>
+
+                <div className="form-group span-full">
+                    <label>Access Details (optional)</label>
+                    <input
+                        type="text"
+                        value={accessDetails}
+                        onChange={(e) => setAccessDetails(e.target.value)}
+                        placeholder="Reason or context for the access decision"
                         disabled={loading}
                     />
                 </div>
@@ -737,6 +843,22 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                     >
                         {loading ? 'Loading...' : 'Recent Records'}
                     </button>
+
+                    <button
+                        onClick={() => handleLogAccess(8)}
+                        disabled={loading}
+                        className="btn-primary"
+                    >
+                        {loading ? 'Processing...' : 'Grant Access'}
+                    </button>
+
+                    <button
+                        onClick={() => handleLogAccess(9)}
+                        disabled={loading}
+                        className="btn-primary"
+                    >
+                        {loading ? 'Processing...' : 'Deny Access'}
+                    </button>
                 </div>
             </div>
 
@@ -759,6 +881,9 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                                         <th>Action</th>
                                         <th>DID String</th>
                                         <th>Actor</th>
+                                        <th>Subject DID</th>
+                                        <th>Related Entity</th>
+                                        <th>Details</th>
                                         <th>Timestamp</th>
                                     </tr>
                                 </thead>
@@ -766,9 +891,12 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                                     {didAuditRecords.records.map((record) => (
                                         <tr key={record.recordId}>
                                             <td>{record.recordId}</td>
-                                            <td>{formatAuditAction(record.action)}</td>
-                                            <td>{record.didString || 'N/A'}</td>
-                                            <td>{record.actor?.substring(0, 10)}...</td>
+                                            <td>{record.actionLabel || formatAuditAction(record.action)}</td>
+                                            <td><TruncatedValue value={record.didString} start={18} end={8} /></td>
+                                            <td><TruncatedValue value={record.actor} /></td>
+                                            <td><TruncatedValue value={record.subjectDID} /></td>
+                                            <td><TruncatedValue value={record.relatedEntity} /></td>
+                                            <td><TruncatedValue value={record.details} start={22} end={0} /></td>
                                             <td>{new Date(record.timestamp * 1000).toLocaleString()}</td>
                                         </tr>
                                     ))}
@@ -792,6 +920,9 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                                     <th>Action</th>
                                     <th>DID String</th>
                                     <th>Actor</th>
+                                    <th>Subject DID</th>
+                                    <th>Related Entity</th>
+                                    <th>Details</th>
                                     <th>Timestamp</th>
                                 </tr>
                             </thead>
@@ -799,9 +930,12 @@ const Phase3Component = ({ account, setMessage, loading, setLoading, getErrorMes
                                 {recentRecords.map((record) => (
                                     <tr key={record.recordId}>
                                         <td>{record.recordId}</td>
-                                        <td>{formatAuditAction(record.action)}</td>
-                                        <td>{record.didString || 'N/A'}</td>
-                                        <td>{record.actor?.substring(0, 10)}...</td>
+                                        <td>{record.actionLabel || formatAuditAction(record.action)}</td>
+                                        <td><TruncatedValue value={record.didString} start={18} end={8} /></td>
+                                        <td><TruncatedValue value={record.actor} /></td>
+                                        <td><TruncatedValue value={record.subjectDID} /></td>
+                                        <td><TruncatedValue value={record.relatedEntity} /></td>
+                                        <td><TruncatedValue value={record.details} start={22} end={0} /></td>
                                         <td>{new Date(record.timestamp * 1000).toLocaleString()}</td>
                                     </tr>
                                 ))}

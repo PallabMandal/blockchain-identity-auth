@@ -19,6 +19,50 @@ function isBytes32(value) {
     return typeof value === 'string' && ethers.isHexString(value, 32);
 }
 
+const AUDIT_ACTION_LABELS = [
+    'DID_CREATED',
+    'DID_UPDATED',
+    'DID_REVOKED',
+    'CREDENTIAL_ISSUED',
+    'CREDENTIAL_VERIFIED',
+    'CREDENTIAL_REVOKED',
+    'PRESENTATION_CREATED',
+    'PRESENTATION_VERIFIED',
+    'ACCESS_GRANTED',
+    'ACCESS_DENIED'
+];
+
+async function enrichAuditRecord(record) {
+    let didString = '';
+    const subjectDID = record.subjectDID;
+
+    if (didRegistry && subjectDID && subjectDID !== ethers.ZeroHash) {
+        try {
+            const didDoc = await didRegistry.getDID(subjectDID);
+            if (didDoc?.owner && didDoc.owner !== ethers.ZeroAddress) {
+                didString = didDoc.didString || '';
+            }
+        } catch (_) {
+            // Keep didString empty if DID lookup fails.
+        }
+    }
+
+    const action = Number(record.action);
+
+    return {
+        recordId: Number(record.recordId),
+        action,
+        actionLabel: AUDIT_ACTION_LABELS[action] || `UNKNOWN_ACTION_${action}`,
+        actor: record.actor,
+        subjectDID: record.subjectDID,
+        relatedEntity: record.relatedEntity,
+        timestamp: Number(record.timestamp),
+        details: record.details,
+        ipfsHash: record.ipfsHash,
+        didString
+    };
+}
+
 // Middleware to initialize contracts
 router.use((req, res, next) => {
     if (!didRegistry && config.didRegistryAddress) {
@@ -223,33 +267,9 @@ router.get('/audit/did/:didHash', async (req, res) => {
         const auditTrail = await auditLog.getDIDAuditTrail(didHash);
         const recordIds = auditTrail.map((id) => parseInt(id));
         const records = await Promise.all(
-            recordIds.map(async (recordId) => {
-                const record = await auditLog.getAuditRecord(recordId);
-
-                let didString = '';
-                const subjectDID = record.subjectDID;
-                if (didRegistry && subjectDID && subjectDID !== ethers.ZeroHash) {
-                    try {
-                        const didDoc = await didRegistry.getDID(subjectDID);
-                        if (didDoc?.owner && didDoc.owner !== ethers.ZeroAddress) {
-                            didString = didDoc.didString || '';
-                        }
-                    } catch (_) {
-                        // Keep didString empty if DID lookup fails.
-                    }
-                }
-
-                return {
-                    recordId: parseInt(record.recordId),
-                    action: parseInt(record.action),
-                    actor: record.actor,
-                    subjectDID: record.subjectDID,
-                    relatedEntity: record.relatedEntity,
-                    timestamp: parseInt(record.timestamp),
-                    details: record.details,
-                    didString
-                };
-            })
+            recordIds.map(async (recordId) => enrichAuditRecord(
+                await auditLog.getAuditRecord(recordId)
+            ))
         );
 
         res.json({
@@ -285,16 +305,9 @@ router.get('/audit/credential/:credentialId', async (req, res) => {
         const recordIds = await auditLog.getCredentialAuditTrail(credentialId);
 
         const records = await Promise.all(
-            recordIds.map(async (id) => {
-                const r = await auditLog.getAuditRecord(id);
-                return {
-                    recordId: Number(r.recordId),
-                    actor: r.actor,
-                    action: Number(r.action),
-                    timestamp: Number(r.timestamp),
-                    details: r.details
-                };
-            })
+            recordIds.map(async (id) => enrichAuditRecord(
+                await auditLog.getAuditRecord(id)
+            ))
         );
 
         res.json({
@@ -322,34 +335,7 @@ router.get('/audit/recent/:limit', async (req, res) => {
 
         const records = await auditLog.getRecentAuditRecords(limit);
 
-        const enrichedRecords = await Promise.all(
-            records.map(async (record) => {
-                let didString = '';
-                const subjectDID = record.subjectDID;
-
-                if (didRegistry && subjectDID && subjectDID !== ethers.ZeroHash) {
-                    try {
-                        const didDoc = await didRegistry.getDID(subjectDID);
-                        if (didDoc?.owner && didDoc.owner !== ethers.ZeroAddress) {
-                            didString = didDoc.didString || '';
-                        }
-                    } catch (_) {
-                        // Keep didString empty if DID lookup fails.
-                    }
-                }
-
-                return {
-                    recordId: parseInt(record.recordId),
-                    action: parseInt(record.action),
-                    actor: record.actor,
-                    subjectDID: record.subjectDID,
-                    relatedEntity: record.relatedEntity,
-                    timestamp: parseInt(record.timestamp),
-                    details: record.details,
-                    didString
-                };
-            })
-        );
+        const enrichedRecords = await Promise.all(records.map(enrichAuditRecord));
 
         res.json({
             success: true,
