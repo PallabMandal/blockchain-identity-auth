@@ -66,6 +66,40 @@ const TruncatedValue = ({ value, start, end }) => (
     </span>
 );
 
+const getCredentialPayloadStorageKey = (credentialId) => `credentialPayload:${credentialId}`;
+
+const saveCredentialPayload = (credentialId, payload) => {
+    try {
+        localStorage.setItem(getCredentialPayloadStorageKey(credentialId), JSON.stringify(payload));
+    } catch (error) {
+        console.warn('Unable to save credential payload locally:', error);
+    }
+};
+
+const loadCredentialPayload = (credentialId) => {
+    try {
+        const storedPayload = localStorage.getItem(getCredentialPayloadStorageKey(credentialId));
+        return storedPayload ? JSON.parse(storedPayload) : null;
+    } catch (error) {
+        console.warn('Unable to load credential payload locally:', error);
+        return null;
+    }
+};
+
+const credentialToJson = (credential, payload, integrityVerified = false) => ({
+    credentialId: credential.credentialId,
+    issuerDID: credential.issuerDID,
+    subjectDID: credential.subjectDID,
+    credentialType: credential.credentialType,
+    credentialHash: credential.credentialHash,
+    issuedAt: credential.issuedAt?.toString(),
+    expiresAt: credential.expiresAt?.toString(),
+    isRevoked: Boolean(credential.revoked),
+    isVerified: Boolean(credential.verified),
+    integrityVerified,
+    payload: payload || 'Unavailable: original certificate payload is stored off-chain and was not found in this browser.'
+});
+
 const getSigner = async () => {
     if (!window.ethereum) {
         alert('MetaMask not installed');
@@ -339,6 +373,7 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
     const [issuedCredentialId, setIssuedCredentialId] = useState('');
     const [qrValue, setQrValue] = useState('');
     const [certificatePayload, setCertificatePayload] = useState(null);
+    const [verifiedCredentialJson, setVerifiedCredentialJson] = useState(null);
 
     const normalizeCredentialId = (value) => {
         const trimmed = (value || '').trim();
@@ -467,6 +502,7 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 
             const qrLink = `${window.location.origin}?credentialId=${issuedCredentialId}`;
 
+            saveCredentialPayload(issuedCredentialId, payload);
             setIssuedCredentialId(issuedCredentialId);
             setQrValue(qrLink);
             setCertificatePayload(payload);
@@ -515,25 +551,41 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                 throw new Error('Credential not found on-chain');
             }
 
+            let integrityVerified = false;
+            const payloadForVerification = certificatePayload || loadCredentialPayload(normalizedId);
+
             // Step 2: If we have stored payload, verify its hash
-            if (certificatePayload) {
-                const payloadHash = keccak256(toUtf8Bytes(JSON.stringify(certificatePayload)));
+            if (payloadForVerification) {
+                const payloadHash = keccak256(toUtf8Bytes(JSON.stringify(payloadForVerification)));
                 if (payloadHash !== credential.credentialHash) {
                     throw new Error('Credential data mismatch: submitted payload does not match on-chain commitment. Possible tampering detected.');
+                }
+                integrityVerified = await credentialRegistry.verifyCredentialIntegrity(normalizedId, payloadHash);
+                if (!integrityVerified) {
+                    throw new Error('Credential integrity check failed on-chain');
                 }
             } else {
                 setMessage('Warning: Verifying credential without payload check. For full integrity verification, re-issue or retrieve the certificate payload.');
             }
 
             // Step 3: Perform on-chain verification with hash
-            const payloadHashToSubmit = certificatePayload
-                ? keccak256(toUtf8Bytes(JSON.stringify(certificatePayload)))
+            const payloadHashToSubmit = payloadForVerification
+                ? keccak256(toUtf8Bytes(JSON.stringify(payloadForVerification)))
                 : credential.credentialHash;
 
             const tx = await credentialRegistry.verifyCredential(normalizedId, payloadHashToSubmit);
             await tx.wait();
 
+            const verifiedCredential = await credentialRegistry.getCredential(normalizedId);
             setCredentialId(normalizedId);
+            setCertificatePayload(payloadForVerification);
+            setVerifiedCredentialJson(
+                credentialToJson(
+                    verifiedCredential,
+                    payloadForVerification,
+                    payloadForVerification ? integrityVerified : true
+                )
+            );
             setMessage('Success: Credential verified and integrity confirmed!');
         } catch (error) {
             setMessage('Error: ' + getErrorMessage(error));
@@ -653,6 +705,13 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
                         {loading ? 'Verifying...' : 'Verify & Check Integrity'}
                     </button>
                 </div>
+
+                {verifiedCredentialJson && (
+                    <div className="details-panel">
+                        <h3>Verified Credential JSON</h3>
+                        <pre>{JSON.stringify(verifiedCredentialJson, null, 2)}</pre>
+                    </div>
+                )}
             </div>
 
         </div>
@@ -660,25 +719,11 @@ const Phase2Component = ({ account, contractAddresses, setMessage, loading, setL
 };
 
 // Phase 3: Access & Audit Component
-const Phase3Component = ({ account, contractAddresses, setMessage, loading, setLoading, getErrorMessage }) => {
+const Phase3Component = ({ setMessage, loading, setLoading, getErrorMessage }) => {
     const [didHash, setDidHash] = useState('');
-    const [relatedEntity, setRelatedEntity] = useState('');
-    const [accessDetails, setAccessDetails] = useState('');
     const [didAuditIds, setDidAuditIds] = useState(null);
     const [didAuditRecords, setDidAuditRecords] = useState(null);
     const [recentRecords, setRecentRecords] = useState(null);
-
-    const refreshAuditViews = async () => {
-        const [didRecordsResult, recentResult] = await Promise.all([
-            didHash ? APIService.getDIDAuditTrailRecords(didHash) : Promise.resolve(null),
-            APIService.getRecentAuditRecords(10)
-        ]);
-
-        if (didRecordsResult) {
-            setDidAuditRecords(didRecordsResult);
-        }
-        setRecentRecords(recentResult.records);
-    };
 
     const handleGetDIDAuditIds = async () => {
         if (!didHash) {
@@ -729,61 +774,10 @@ const Phase3Component = ({ account, contractAddresses, setMessage, loading, setL
         }
     };
 
-    const handleLogAccess = async (action) => {
-        if (!didHash) {
-            setMessage('Error: Please enter DID hash');
-            return;
-        }
-
-        if (!ethers.isHexString(didHash, 32)) {
-            setMessage('Error: DID hash must be a 32-byte hex value');
-            return;
-        }
-
-        if (relatedEntity && !ethers.isHexString(relatedEntity, 32)) {
-            setMessage('Error: Related entity must be a 32-byte hex value');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const auditLogAddress = getContractAddress(
-                contractAddresses,
-                'auditLog',
-                'REACT_APP_AUDIT_LOG_ADDRESS'
-            );
-
-            if (!auditLogAddress) {
-                throw new Error('AuditLog address is not configured');
-            }
-
-            const signer = await getSigner();
-            if (!signer) {
-                throw new Error('MetaMask signer not available');
-            }
-
-            const auditLog = new ethers.Contract(auditLogAddress, AUDIT_LOG_ABI, signer);
-            const tx = await auditLog.logAction(
-                action,
-                didHash,
-                relatedEntity || ZERO_BYTES32,
-                accessDetails || (action === 8 ? 'Access granted' : 'Access denied'),
-                ''
-            );
-            await tx.wait();
-            await refreshAuditViews();
-            setMessage(`Success: ${action === 8 ? 'Access granted' : 'Access denied'} logged!`);
-        } catch (error) {
-            setMessage('Error: ' + getErrorMessage(error));
-        } finally {
-            setLoading(false);
-        }
-    };
-
     return (
         <div className="phase-content">
             <h2>Phase 3: Access & Audit</h2>
-            <p>Grant/Deny access and maintain immutable audit trail of all operations</p>
+            <p>View immutable audit trail records for DID and credential operations</p>
 
             <div className="form">
                 <div className="form-group">
@@ -793,28 +787,6 @@ const Phase3Component = ({ account, contractAddresses, setMessage, loading, setL
                         value={didHash}
                         onChange={(e) => setDidHash(e.target.value)}
                         placeholder="Enter DID hash"
-                        disabled={loading}
-                    />
-                </div>
-
-                <div className="form-group">
-                    <label>Related Entity Hash (optional)</label>
-                    <input
-                        type="text"
-                        value={relatedEntity}
-                        onChange={(e) => setRelatedEntity(e.target.value)}
-                        placeholder="Credential ID, presentation ID, or DID hash"
-                        disabled={loading}
-                    />
-                </div>
-
-                <div className="form-group span-full">
-                    <label>Access Details (optional)</label>
-                    <input
-                        type="text"
-                        value={accessDetails}
-                        onChange={(e) => setAccessDetails(e.target.value)}
-                        placeholder="Reason or context for the access decision"
                         disabled={loading}
                     />
                 </div>
@@ -842,22 +814,6 @@ const Phase3Component = ({ account, contractAddresses, setMessage, loading, setL
                         className="btn-primary"
                     >
                         {loading ? 'Loading...' : 'Recent Records'}
-                    </button>
-
-                    <button
-                        onClick={() => handleLogAccess(8)}
-                        disabled={loading}
-                        className="btn-primary"
-                    >
-                        {loading ? 'Processing...' : 'Grant Access'}
-                    </button>
-
-                    <button
-                        onClick={() => handleLogAccess(9)}
-                        disabled={loading}
-                        className="btn-primary"
-                    >
-                        {loading ? 'Processing...' : 'Deny Access'}
                     </button>
                 </div>
             </div>
