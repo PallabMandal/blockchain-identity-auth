@@ -33,7 +33,7 @@ Responsibilities:
 
 - Register credential schema hashes.
 - Register DID documents (owner, DID string, public key field, schema hash).
-- Read DID state.
+- Read DID state and map wallet address to DID.
 
 ### CredentialRegistry
 
@@ -51,6 +51,11 @@ Security controls implemented:
 - `addIssuer(address)` restricted to owner.
 - `issueCredential(...)` restricted by `onlyIssuer`.
 
+Integrity verification:
+
+- `verifyCredential(bytes32 credentialId, bytes32 submittedHash)` checks submitted hash matches stored `credentialHash`.
+- `verifyCredentialIntegrity(bytes32 credentialId, bytes32 payloadHash)` is a read-only helper used by the frontend.
+
 Constructor wiring:
 
 - `constructor(address _auditLog)`
@@ -67,6 +72,7 @@ Current integration:
 
 - `CredentialRegistry.issueCredential` logs `CREDENTIAL_ISSUED`.
 - `CredentialRegistry.verifyCredential` logs `CREDENTIAL_VERIFIED`.
+- Frontend logs `DID_CREATED` to AuditLog after DID registration (if AuditLog address is available).
 
 ## Backend API Architecture
 
@@ -78,7 +84,7 @@ Current integration:
 
 **Credential Endpoints:**
 
-- `GET /api/v1/credential/:credentialId` - Retrieve credential details (issuerDID, subjectDID, credentialType, timestamps, revoked, verified)
+- `GET /api/v1/credential/:credentialId` - Retrieve credential details (issuerDID, subjectDID, type, timestamps, revoked, verified)
 
 **Audit Endpoints:**
 
@@ -106,9 +112,10 @@ The following routes exist but intentionally return HTTP 410 to enforce wallet-b
 
 1. User submits DID data in frontend.
 2. Frontend gets MetaMask signer.
-3. Frontend calls `DIDRegistry.registerSchema` (if needed) and `registerDID` directly.
-4. Transaction mined on Ganache.
-5. UI shows DID hash.
+3. Frontend auto-registers a simple schema (name + email) if missing.
+4. Frontend calls `DIDRegistry.registerDID` directly (publicKey is left empty in the UI flow).
+5. Transaction mined on Ganache; DID hash is `keccak256(didString)`.
+6. Frontend logs `DID_CREATED` to AuditLog if AuditLog address is available.
 
 ### Credential issue/verify (Academic Certificates)
 
@@ -119,16 +126,16 @@ The following routes exist but intentionally return HTTP 410 to enforce wallet-b
    ```js
    {
      studentName,
-       collegeName,
-       courseName,
-       grade,
-       passingYear,
-       studentAddress,
-       issuerAddress,
-       issuedAt;
+     collegeName,
+     courseName,
+     grade,
+     passingYear,
+     studentAddress,
+     issuerAddress,
+     issuedAt
    }
    ```
-3. Frontend computes keccak256 hash of payload (only hash goes on-chain).
+3. Frontend computes `keccak256(JSON.stringify(payload))` (only hash goes on-chain).
 4. Frontend resolves issuer and student DIDs from wallet addresses.
 5. Frontend calls `CredentialRegistry.issueCredential(issuerDID, subjectDID, "ACADEMIC_CERTIFICATE", proofHash, 3650)` via MetaMask signer.
 6. Contract:
@@ -139,27 +146,23 @@ The following routes exist but intentionally return HTTP 410 to enforce wallet-b
 7. Frontend:
    - Parses event to extract `credentialId`.
    - Generates QR code: `https://host?credentialId=0x...`
-   - Displays certificate details and QR code.
+   - Stores payload in browser localStorage for later integrity checks.
 8. Verification flow (employer/verifier):
    - Inputs credential ID (raw or from QR URL).
    - Frontend normalizes input (extracts credentialId from QR URL if needed).
    - Frontend fetches on-chain credential record (includes `credentialHash`).
-   - **Integrity check**: If certificate payload is available, frontend computes `keccak256(payload)` and compares with stored `credentialHash`. If hashes differ, verification fails with "possible tampering detected" error.
-   - If integrity check passes, frontend calls `CredentialRegistry.verifyCredential(credentialId, submittedHash)` with the payload hash via signer.
-   - Contract validates:
-     - Credential exists
-     - Hash of submitted payload matches stored `credentialHash`
-     - Credential is not revoked
-     - Credential is not expired
-   - If all checks pass, contract sets `verified=true` and logs `CREDENTIAL_VERIFIED` to `AuditLog` with note "Credential verified and integrity confirmed".
-   - If hash mismatch, verification fails with "Credential data mismatch" error.
+   - If payload is available (current browser), frontend recomputes hash and verifies it matches `credentialHash`.
+   - Frontend calls `verifyCredentialIntegrity` (read-only) and then `verifyCredential(credentialId, payloadHash)`.
+   - If payload is not available, frontend warns and calls `verifyCredential` using the on-chain hash only (no full payload check).
+   - Contract validates credential exists, hash matches, not revoked, and not expired.
+   - On success, contract sets `verified=true` and logs `CREDENTIAL_VERIFIED`.
 9. Audit trail:
    - Frontend calls backend `GET /api/v1/audit/credential/:credentialId`.
-   - Returns list of audit records: issued, verified, with actor address and timestamp.
+   - Returns list of audit records with actor address and timestamp.
 
 ### Audit visibility
 
-- Frontend phase 3 calls backend read endpoints to fetch audit records.
+- Frontend phase 3 calls backend read endpoints to fetch audit records and recent activity.
 
 ## Deployment Architecture
 
@@ -168,7 +171,7 @@ In `scripts/deploy.js`:
 1. Deploy `DIDRegistry`.
 2. Deploy `AuditLog`.
 3. Deploy `CredentialRegistry(auditLogAddress)`.
-4. Append addresses to `backend/.env`.
+4. Append addresses to `backend/.env` (preserving other env settings).
 
 ## Network Configuration
 

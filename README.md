@@ -95,6 +95,7 @@ Optional (fallback if backend health response is unavailable):
 ```env
 REACT_APP_DID_REGISTRY_ADDRESS=<deployed address>
 REACT_APP_CREDENTIAL_REGISTRY_ADDRESS=<deployed address>
+REACT_APP_AUDIT_LOG_ADDRESS=<deployed address>
 ```
 
 ### 5. Start services
@@ -178,6 +179,7 @@ These routes return HTTP 410 with guidance to use MetaMask in frontend:
   - `addIssuer(address)` only by owner
   - `issueCredential(...)` requires `onlyIssuer` modifier
   - `verifyCredential(credentialId, submittedHash)` performs hash-based integrity verification before marking credential verified
+  - `verifyCredentialIntegrity(credentialId, payloadHash)` is a view helper for frontend checks
   - Hash mismatch detection: rejects credentials if payload hash differs from stored `credentialHash` (detects grade/data tampering)
 - **Audit integration**:
   - Logs `CREDENTIAL_ISSUED` when certificate issued
@@ -196,7 +198,7 @@ These routes return HTTP 410 with guidance to use MetaMask in frontend:
 In `frontend/src/App.js`:
 
 - `getSigner()` uses `ethers.BrowserProvider(window.ethereum)` to connect MetaMask.
-- **Phase 1 - DID Registration**: Student registers identity (binds wallet to DID).
+- **Phase 1 - DID Registration**: Student registers identity (binds wallet to DID). The UI auto-registers a basic schema and stores an empty publicKey.
 - **Phase 2 - Academic Certificate Portal**:
   - Form fields: student wallet address, student name, college, course, grade, passing year
   - Input validation: all fields required; student wallet must be valid Ethereum address
@@ -205,7 +207,7 @@ In `frontend/src/App.js`:
   - Smart contract call: `issueCredential(issuerDID, subjectDID, "ACADEMIC_CERTIFICATE", proofHash, 3650)`
   - QR generation: creates shareable QR code with URL containing credential ID
   - Verification: accepts raw credential ID or QR URL (auto-normalizes)
-  - Audit trail: displays issued/verified events with actor and timestamp
+  - Payload storage: saved in browser localStorage for integrity checks during later verification
 - **Phase 3 - Audit Inspection**: Backend read APIs for audit trails and certificate details
 
 ## Test Status
@@ -238,7 +240,7 @@ When a credential is issued:
 
 During verification:
 
-1. The verifier (employer, etc.) provides the credential ID and optionally the full certificate payload.
+1. The verifier provides the credential ID and, if available, the full certificate payload.
 2. The frontend recomputes the hash of the provided payload.
 3. This computed hash is compared against the stored `credentialHash` on-chain.
 4. **If hashes match**: The credential is verified and marked on-chain with a confirmation.
@@ -254,7 +256,7 @@ This design detects:
 
 ### Limitations
 
-- If the certificate payload is not available during verification (e.g., only the credential ID is provided), the system issues a warning and proceeds without full integrity check.
+- If the certificate payload is not available during verification (e.g., only the credential ID is provided), the UI warns and submits the on-chain hash only (integrity is not fully checked).
 - The system does not prevent unauthorized data storage off-chain; it only ensures on-chain integrity of registered hashes.
 
 ## Implementation Notes

@@ -30,24 +30,25 @@ Deployment order is:
 2. AuditLog
 3. CredentialRegistry (constructor receives AuditLog address)
 
-<!-- ## 3. Configure Backend
+The deploy script writes addresses to `backend/.env`.
 
-```bash
-cd backend
-copy .env.example .env
-``` -->
+## 3. Configure Backend
 
-Fill deployed addresses in `backend/.env` and verify:
+Ensure `backend/.env` contains:
 
 ```env
 GANACHE_RPC_URL=http://127.0.0.1:7545
 GANACHE_NETWORK_ID=1337
 PORT=5000
+DID_REGISTRY_ADDRESS=0x...
+CREDENTIAL_REGISTRY_ADDRESS=0x...
+AUDIT_LOG_ADDRESS=0x...
 ```
 
 Start backend:
 
 ```bash
+cd backend
 npm install
 npm run dev
 ```
@@ -59,6 +60,14 @@ cd ../frontend
 npm install
 echo REACT_APP_API_URL=http://localhost:5000/api/v1 > .env.local
 npm start
+```
+
+Optional fallback if `/api/v1/health` is unavailable:
+
+```env
+REACT_APP_DID_REGISTRY_ADDRESS=0x...
+REACT_APP_CREDENTIAL_REGISTRY_ADDRESS=0x...
+REACT_APP_AUDIT_LOG_ADDRESS=0x...
 ```
 
 ## 5. Configure MetaMask
@@ -75,7 +84,6 @@ npm start
 
 - Open app at `http://localhost:3000`.
 - Phase 1: enter DID string only.
-
 - Approve MetaMask prompts.
 - Expect success message with DID hash.
 
@@ -96,13 +104,11 @@ npm start
 - Student/employer can:
   - Paste raw credential ID into verification input, OR
   - Scan QR code and paste the URL into verification input.
-- Click **Get Details** to fetch certificate from backend (issuer, student, timestamps, status, **credentialHash**).
-- **Integrity Check**: The app automatically recomputes the hash of the stored certificate payload and compares it against the on-chain `credentialHash`. If the grade or any field was tampered with, the hash will differ and verification will fail.
-- Click **Verify & Check Integrity** to mark credential verified on-chain. This step:
+- Click **Verify & Check Integrity**:
   1. Fetches the on-chain credential record.
-  2. Verifies the hash of your payload matches the stored `credentialHash` (detects tampering).
-  3. Checks credential exists, is not revoked, and not expired.
-  4. Logs `CREDENTIAL_VERIFIED` action on-chain.
+  2. If the original payload is available in this browser, verifies its hash matches `credentialHash`.
+  3. Calls `verifyCredential(credentialId, payloadHash)` to mark verified on-chain.
+  4. Logs `CREDENTIAL_VERIFIED` on-chain.
 - **Audit Trail** displays all operations (issued, verified) with actor addresses and timestamps.
 
 ### Audit Reads (backend read API)
@@ -112,7 +118,6 @@ npm start
   - GET `/audit/did/:didHash/ids` - Audit record IDs only (lightweight)
   - GET `/audit/credential/:credentialId` - Audit trail for a credential
   - GET `/audit/recent/:limit` - Most recent N audit records system-wide
-  - GET `/audit/recent/:limit`
 
 ## API Notes
 
@@ -121,6 +126,8 @@ Active read routes:
 - GET `/api/v1/did/:didHash`
 - GET `/api/v1/credential/:credentialId`
 - GET `/api/v1/audit/did/:didHash`
+- GET `/api/v1/audit/did/:didHash/ids`
+- GET `/api/v1/audit/credential/:credentialId`
 - GET `/api/v1/audit/recent/:limit`
 - GET `/api/v1/health`
 
@@ -147,4 +154,4 @@ The system uses hash-based proof storage (`proofHash`) on-chain:
 
 - Full certificate data (name, college, course, grade, year, timestamp) is stored off-chain.
 - Only the keccak256 hash of the certificate payload is stored on-chain (immutable and tamper-proof).
-- This keeps on-chain storage minimal while ensuring certificate integrity.
+- Full integrity checks depend on the payload being available in the current browser (stored in localStorage).

@@ -72,6 +72,7 @@ Optional fallback envs if backend health contract address discovery is unavailab
 ```env
 REACT_APP_DID_REGISTRY_ADDRESS=<address>
 REACT_APP_CREDENTIAL_REGISTRY_ADDRESS=<address>
+REACT_APP_AUDIT_LOG_ADDRESS=<address>
 ```
 
 ## Step 5: MetaMask Setup
@@ -99,7 +100,8 @@ REACT_APP_CREDENTIAL_REGISTRY_ADDRESS=<address>
   - `addIssuer(address)` only owner
   - `issueCredential(...)` restricted by `onlyIssuer`
 - Verification:
-  - `verifyCredential(bytes32)` marks credential verified.
+  - `verifyCredential(bytes32 credentialId, bytes32 submittedHash)` marks credential verified after hash checks.
+  - `verifyCredentialIntegrity(bytes32 credentialId, bytes32 payloadHash)` is used by the frontend as a view helper.
 - Presentation field:
   - `proofHash` naming is used.
 
@@ -108,6 +110,7 @@ REACT_APP_CREDENTIAL_REGISTRY_ADDRESS=<address>
 - `logAction(...)` called by CredentialRegistry for:
   - CREDENTIAL_ISSUED
   - CREDENTIAL_VERIFIED
+- Frontend logs `DID_CREATED` after successful DID registration (if AuditLog address is available).
 - Read APIs:
   - `getDIDAuditTrail(bytes32)`
   - `getRecentAuditRecords(uint256)`
@@ -145,7 +148,7 @@ Health and system:
 Implemented in `frontend/src/App.js`:
 
 - `getSigner()` obtains `ethers.BrowserProvider(window.ethereum)` signer.
-- **Phase 1**: Student registers DID directly to DIDRegistry from browser wallet (binds wallet to identity).
+- **Phase 1**: Student registers DID directly to DIDRegistry from browser wallet (binds wallet to identity). The UI auto-registers a basic schema and uses an empty publicKey.
 - **Phase 2**: Admin issues academic certificates:
   - Collects: student wallet address, student name, college name, course, grade, passing year.
   - Validates student wallet is a valid Ethereum address.
@@ -155,8 +158,12 @@ Implemented in `frontend/src/App.js`:
   - Calls `CredentialRegistry.issueCredential(issuerDID, subjectDID, "ACADEMIC_CERTIFICATE", proofHash, 3650)` with 10-year expiry.
   - Generates QR code containing credential ID and verification URL.
   - Parses `CredentialIssued` event to extract credential ID.
-  - Displays certificate details and QR code for sharing.
-- **Verification**: Frontend normalizes credential ID (handles both raw ID and QR URLs), calls `verifyCredential(...)` via signer.
+  - Stores payload in browser localStorage for integrity checks during later verification.
+- **Verification**:
+  - Frontend normalizes credential ID (handles both raw ID and QR URLs).
+  - If payload is available, recomputes hash and verifies it against `credentialHash`.
+  - Calls `verifyCredential(credentialId, payloadHash)` via signer.
+  - If payload is missing, warns and uses the on-chain hash only (no full payload check).
 
 ## Testing
 

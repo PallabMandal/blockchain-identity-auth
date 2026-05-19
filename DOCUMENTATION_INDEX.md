@@ -31,6 +31,9 @@ This index points to documentation that matches the current code implementation.
 6. `PROJECT_SUMMARY.md`
    - Compact status and capability snapshot.
 
+7. `frontend/DESIGN_DIRECTION.md`
+   - UI visual system and layout guidance.
+
 ## Accuracy Guarantees for This Doc Set
 
 These markdown files are aligned to code currently present in this repository:
@@ -41,7 +44,8 @@ These markdown files are aligned to code currently present in this repository:
 - Credential issuance is issuer-RBAC protected.
 - Proof terminology is hash-based (`proofHash`).
 - Chain ID defaults are 1337.
-- Credential verification includes hash-based integrity checking: verifyCredential requires payload hash and compares against stored on-chain hash.
-- Tampering detection: any modification to certificate data will cause hash mismatch and fail verification.
+- Credential verification requires a submitted payload hash and compares it against the stored on-chain hash.
+- Credential integrity checks are strongest when the original payload is available in the browser (stored in localStorage).
+- Audit read endpoints include `/api/v1/audit/did/:didHash/ids` and `/api/v1/audit/credential/:credentialId`.
 
 If code changes, re-validate docs before presenting externally.

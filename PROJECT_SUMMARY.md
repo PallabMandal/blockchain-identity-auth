@@ -7,7 +7,7 @@
 - Frontend: React + ethers + MetaMask signing + QR code generation
 - Backend: Express read API + audit trail aggregation + health endpoint
 - Network defaults: Ganache RPC `http://127.0.0.1:7545`, chain ID `1337`
-- Key Feature: QR-enabled certificate distribution with full audit trail
+- Key Feature: QR-enabled certificate distribution with on-chain integrity verification
 
 ## Security and Architecture Upgrades Applied
 
@@ -18,22 +18,20 @@
 5. Integrated `AuditLog` calls in issue/verify credential flows.
 6. Aligned network defaults to chain ID 1337.
 7. Added working Hardhat test in `test/credential.js`.
-8. **NEW: Implemented hash-based credential integrity verification**:
-   - `verifyCredential()` now requires both credential ID and payload hash as parameters.
-   - Contract validates hash of submitted payload against stored `credentialHash` during verification.
-   - Detects tampering: any modification to certificate data (grade, name, college, etc.) will cause hash mismatch and fail verification.
-   - Frontend computes `keccak256(JSON.stringify(payload))` and compares against on-chain commitment before verification.
-   - Audit logs include integrity confirmation status.
+8. Implemented hash-based credential integrity verification:
+   - `verifyCredential()` requires credential ID and payload hash.
+   - Contract validates submitted hash against stored `credentialHash`.
+   - Frontend computes `keccak256(JSON.stringify(payload))` and confirms integrity before verification.
 
 ## What Works Now
 
 ### Frontend
 
-- Wallet connect and account display.
-- **Phase 1**: Student DID registration (binds wallet to identity).
-- **Phase 2**: Admin issues academic certificates with QR codes; students/employers verify certificates using credential ID or scanned QR.
-- Certificate details (issuer, student, college, course, grade, passing year, status) via backend read API.
-- Credential audit trail (issued, verified events) with actor addresses and timestamps via backend read API.
+- Wallet connect, balance, and network display.
+- **Phase 1**: Student DID registration (binds wallet to identity; schema auto-registered if missing).
+- **Phase 2**: Admin issues academic certificates with QR codes; students/employers verify using credential ID or scanned QR URL.
+- **Phase 3**: Audit read UI for DID audit IDs, full DID audit records, and recent audit records.
+- Certificate payload stored locally in the issuing browser for integrity checks on later verification.
 
 ### Backend
 
@@ -46,11 +44,13 @@
 - `CredentialRegistry` constructor requires AuditLog address.
 - Issuer-only credential issuance enforced.
 - Audit records appended on issue and verify.
+- `verifyCredentialIntegrity` view used by frontend before verification.
 
 ## Known Constraints
 
 - No true zero-knowledge protocol is implemented.
 - Presentation uses hash-based proof field (`proofHash`).
+- Full integrity checks require the original payload (stored in browser localStorage on the issuing machine).
 - This setup is local-dev oriented (Ganache + local env files).
 
 ## Test Status
