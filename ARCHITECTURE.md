@@ -126,13 +126,13 @@ The following routes exist but intentionally return HTTP 410 to enforce wallet-b
    ```js
    {
      studentName,
-     collegeName,
-     courseName,
-     grade,
-     passingYear,
-     studentAddress,
-     issuerAddress,
-     issuedAt
+       collegeName,
+       courseName,
+       grade,
+       passingYear,
+       studentAddress,
+       issuerAddress,
+       issuedAt;
    }
    ```
 3. Frontend computes `keccak256(JSON.stringify(payload))` (only hash goes on-chain).

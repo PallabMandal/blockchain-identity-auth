@@ -29,6 +29,7 @@ This index points to documentation that matches the current code implementation.
    - Full project guide and troubleshooting.
 
 6. `PROJECT_SUMMARY.md`
+
    - Compact status and capability snapshot.
 
 7. `frontend/DESIGN_DIRECTION.md`
